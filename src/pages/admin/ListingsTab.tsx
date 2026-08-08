@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { escapeLike } from '../../lib/validate'
 import { formatDate } from '../../lib/format'
 import type { ListingWithRelations } from '../../lib/types'
+import { CategoryIcon } from '../../components/CategoryIcon'
 import { EmptyBlock, ErrorBlock, Feedback, LoadingBlock, Pill, SectionHeader } from './shared'
 import { buttonClass, describeError, inputClass } from './helpers'
 
@@ -32,7 +34,7 @@ export default function ListingsTab() {
 
     const trimmed = term.trim()
     const { data, error: queryError } = trimmed
-      ? await base.ilike('title', `%${trimmed}%`)
+      ? await base.ilike('title', `%${escapeLike(trimmed)}%`)
       : await base
 
     if (queryError) {
@@ -154,7 +156,13 @@ export default function ListingsTab() {
                       <Pill tone="stone">{listing.type === 'offering' ? 'Offering' : 'Seeking'}</Pill>
                       {listing.category && (
                         <Pill tone="stone">
-                          {listing.category.emoji ?? '🔁'} {listing.category.name}
+                          <span className="inline-flex items-center gap-1.5">
+                            <CategoryIcon
+                              name={listing.category.icon}
+                              className="h-3.5 w-3.5 text-stone-500"
+                            />
+                            {listing.category.name}
+                          </span>
                         </Pill>
                       )}
                     </div>

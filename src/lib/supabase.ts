@@ -9,4 +9,7 @@ if (!url || !anonKey) {
   )
 }
 
-export const supabase = createClient(url, anonKey)
+export const supabase = createClient(url, anonKey, {
+  // PKCE keeps the OAuth code exchange verifiable by this browser only.
+  auth: { flowType: 'pkce' },
+})

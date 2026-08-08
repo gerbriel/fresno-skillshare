@@ -1,9 +1,58 @@
-@import "tailwindcss";
+@import '@fontsource-variable/plus-jakarta-sans';
+@import 'tailwindcss';
 
 @theme {
-  --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Primary — deep pine-teal (trust). Remaps every emerald-* utility app-wide. */
+  --color-emerald-50: oklch(0.98 0.012 180);
+  --color-emerald-100: oklch(0.95 0.026 180);
+  --color-emerald-200: oklch(0.9 0.048 179);
+  --color-emerald-300: oklch(0.83 0.075 178);
+  --color-emerald-400: oklch(0.74 0.098 177);
+  --color-emerald-500: oklch(0.64 0.105 176);
+  --color-emerald-600: oklch(0.55 0.098 175);
+  --color-emerald-700: oklch(0.47 0.085 174);
+  --color-emerald-800: oklch(0.4 0.07 174);
+  --color-emerald-900: oklch(0.34 0.058 174);
+  --color-emerald-950: oklch(0.26 0.042 175);
+
+  /* Accent — warm terracotta (community). Remaps every amber-* utility app-wide. */
+  --color-amber-50: oklch(0.975 0.013 55);
+  --color-amber-100: oklch(0.945 0.03 53);
+  --color-amber-200: oklch(0.89 0.058 50);
+  --color-amber-300: oklch(0.82 0.093 47);
+  --color-amber-400: oklch(0.74 0.125 43);
+  --color-amber-500: oklch(0.67 0.145 40);
+  --color-amber-600: oklch(0.59 0.14 37);
+  --color-amber-700: oklch(0.51 0.12 35);
+  --color-amber-800: oklch(0.44 0.098 34);
+  --color-amber-900: oklch(0.39 0.08 33);
+  --color-amber-950: oklch(0.28 0.055 32);
 }
 
 body {
   @apply bg-stone-50 text-stone-800 font-sans antialiased;
+}
+
+@layer base {
+  h1,
+  h2,
+  h3 {
+    @apply tracking-tight;
+  }
+
+  ::selection {
+    @apply bg-emerald-100 text-emerald-950;
+  }
+
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  [tabindex]:not([tabindex='-1']):focus-visible {
+    @apply outline-2 outline-offset-2 outline-emerald-600;
+  }
 }

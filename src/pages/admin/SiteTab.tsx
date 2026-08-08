@@ -5,7 +5,6 @@ import { ErrorBlock, Feedback, LoadingBlock, SectionHeader } from './shared'
 import { buttonClass, cardClass, describeError, inputClass, labelClass } from './helpers'
 
 const KEYS = ['hero_heading', 'hero_subheading', 'about', 'how_it_works'] as const
-type SettingKey = (typeof KEYS)[number]
 
 const BLANK: SiteSettings = {
   hero_heading: '',
@@ -30,7 +29,6 @@ function asStringList(value: unknown): string[] {
 export default function SiteTab() {
   const [form, setForm] = useState<SiteSettings>(BLANK)
   const [original, setOriginal] = useState<SiteSettings>(BLANK)
-  const [existingKeys, setExistingKeys] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -63,7 +61,6 @@ export default function SiteTab() {
 
     setForm(loaded)
     setOriginal(loaded)
-    setExistingKeys(rows.map((row) => row.key))
     setLoading(false)
   }, [])
 
@@ -110,37 +107,26 @@ export default function SiteTab() {
       return
     }
 
-    const updatedAt = new Date().toISOString()
+    // All changed keys are upserted in one transaction server-side.
+    const payload: Record<string, string | string[]> = {}
+    for (const key of changed) payload[key] = cleaned[key]
 
-    for (const key of changed) {
-      const value: string | string[] = cleaned[key]
-      const exists = existingKeys.includes(key)
+    const { error: writeError } = await supabase.rpc('upsert_site_settings', {
+      p_settings: payload,
+    })
 
-      const { error: writeError } = exists
-        ? await supabase
-            .from('site_settings')
-            .update({ value, updated_at: updatedAt })
-            .eq('key', key)
-        : await supabase.from('site_settings').insert({ key, value, updated_at: updatedAt })
-
-      if (writeError) {
-        setFeedback({
-          tone: 'error',
-          message: describeError(writeError, 'Some changes did not save.'),
-        })
-        setSaving(false)
-        await load()
-        return
-      }
+    if (writeError) {
+      setFeedback({
+        tone: 'error',
+        message: describeError(writeError, 'The changes did not save.'),
+      })
+      setSaving(false)
+      await load()
+      return
     }
 
     setForm(cleaned)
     setOriginal(cleaned)
-    setExistingKeys((current) => {
-      const next = new Set(current)
-      changed.forEach((key: SettingKey) => next.add(key))
-      return Array.from(next)
-    })
     setFeedback({
       tone: 'success',
       message: 'Saved. The landing page is updated for everyone who visits.',

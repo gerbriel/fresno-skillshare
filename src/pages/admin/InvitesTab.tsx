@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
+import { isValidEmail, LIMITS } from '../../lib/validate'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate } from '../../lib/format'
 import type { Invite } from '../../lib/types'
@@ -52,10 +53,15 @@ export default function InvitesTab() {
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmedEmail = email.trim()
-    const trimmedNote = note.trim()
+    const trimmedNote = note.trim().slice(0, LIMITS.inviteNote)
 
     if (!trimmedEmail) {
       setFormError('Add an email address to send an invite.')
+      setFormSuccess(null)
+      return
+    }
+    if (!isValidEmail(trimmedEmail)) {
+      setFormError('That email address does not look right. Double-check it and try again.')
       setFormSuccess(null)
       return
     }
@@ -141,6 +147,7 @@ export default function InvitesTab() {
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
+              maxLength={LIMITS.email}
               placeholder="neighbor@example.com"
               autoComplete="off"
               className={`mt-1.5 ${inputClass}`}
@@ -155,6 +162,7 @@ export default function InvitesTab() {
               type="text"
               value={note}
               onChange={(event) => setNote(event.target.value)}
+              maxLength={LIMITS.inviteNote}
               placeholder="Met at the farmers market"
               className={`mt-1.5 ${inputClass}`}
             />

@@ -36,20 +36,10 @@ export function buttonClass(variant: ButtonVariant = 'primary', size: ButtonSize
   ].join(' ')
 }
 
-export interface QueryError {
-  message?: string
-  code?: string
-}
-
-export function describeError(error: QueryError | null | undefined, fallback: string): string {
-  if (!error) return fallback
-  return error.message ? `${fallback} ${error.message}` : fallback
-}
-
-export function isUniqueViolation(error: QueryError | null | undefined): boolean {
-  if (!error) return false
-  return error.code === '23505' || (error.message ?? '').toLowerCase().includes('duplicate key')
-}
+// Error helpers live in lib/errors so member pages share them;
+// re-exported here to keep existing admin imports working.
+export { describeError, isUniqueViolation } from '../../lib/errors'
+export type { QueryError } from '../../lib/errors'
 
 export function slugify(value: string): string {
   return value

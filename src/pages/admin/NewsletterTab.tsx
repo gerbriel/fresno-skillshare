@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { LIMITS } from '../../lib/validate'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate } from '../../lib/format'
 import type { Newsletter } from '../../lib/types'
@@ -235,7 +236,8 @@ export default function NewsletterTab() {
             type="text"
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
-            placeholder="This month at Barter Fresno"
+            maxLength={LIMITS.newsletterSubject}
+            placeholder="This month at Fresno Skillshare"
             className={`mt-1.5 ${inputClass}`}
           />
         </div>
@@ -249,6 +251,7 @@ export default function NewsletterTab() {
             value={body}
             onChange={(event) => setBody(event.target.value)}
             rows={8}
+            maxLength={LIMITS.newsletterBody}
             placeholder="What is happening in the co-op this month?"
             className={`mt-1.5 resize-y ${inputClass}`}
           />

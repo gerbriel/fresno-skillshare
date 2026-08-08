@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { describeError } from '../lib/errors'
 import { StarInput } from './Stars'
 import type { Review, Score } from '../lib/types'
 
@@ -67,7 +68,7 @@ export default function ReviewForm({ revieweeId, existing, onSaved }: ReviewForm
     setSaving(false)
 
     if (saveError) {
-      setError(saveError.message)
+      setError(describeError(saveError, 'Could not save your review.'))
       return
     }
     onSaved()

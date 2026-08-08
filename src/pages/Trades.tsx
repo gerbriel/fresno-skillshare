@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { Medal } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { describeError } from '../lib/errors'
 import { formatDate, timeAgo } from '../lib/format'
+import { cleanText, LIMITS } from '../lib/validate'
 import Avatar from '../components/Avatar'
 import type { ProfileLite, TradeStatus, TradeTask, TradeWithProfiles } from '../lib/types'
 
@@ -66,9 +69,10 @@ export default function Trades() {
       .from('trades')
       .select(TRADE_SELECT)
       .order('created_at', { ascending: false })
+      .limit(100)
 
     if (error) {
-      setLoadError(error.message)
+      setLoadError(describeError(error, 'We could not load your trades.'))
       setLoading(false)
       return
     }
@@ -93,7 +97,7 @@ export default function Trades() {
       .order('created_at', { ascending: true })
 
     if (taskError) {
-      setLoadError(taskError.message)
+      setLoadError(describeError(taskError, 'We could not load the trade tasks.'))
     } else {
       setTasks((taskRows ?? []) as TradeTask[])
     }
@@ -118,7 +122,7 @@ export default function Trades() {
         .order('display_name', { ascending: true })
       if (cancelled) return
       if (error) {
-        setMembersError(error.message)
+        setMembersError(describeError(error, 'We could not load the member list.'))
       } else {
         setMembersError(null)
         setMembers((data ?? []) as ProfileLite[])
@@ -148,8 +152,12 @@ export default function Trades() {
   }, [tasks])
 
   const addTask = () => {
-    const value = taskDraft.trim()
+    const value = cleanText(taskDraft, LIMITS.tradeTaskTitle)
     if (!value) return
+    if (taskList.length >= LIMITS.tradeTaskCount) {
+      setFormError(`A trade can have at most ${LIMITS.tradeTaskCount} tasks.`)
+      return
+    }
     setTaskList((prev) => [...prev, value])
     setTaskDraft('')
   }
@@ -182,35 +190,18 @@ export default function Trades() {
     setSubmitting(true)
     setFormError(null)
 
-    const { data, error } = await supabase
-      .from('trades')
-      .insert({
-        proposer_id: me,
-        partner_id: partnerId,
-        title: trimmedTitle,
-        notes: notes.trim() || null,
-      })
-      .select('id')
-      .single()
-
-    if (error || !data) {
-      setSubmitting(false)
-      setFormError(error?.message ?? 'Could not create that trade.')
-      return
-    }
-
-    const tradeId = data.id as string
-    const { error: taskError } = await supabase.from('trade_tasks').insert(
-      taskList.map((taskTitle) => ({
-        trade_id: tradeId,
-        title: taskTitle,
-      }))
-    )
+    // One transaction server-side: the trade and its tasks land together
+    // or not at all.
+    const { error } = await supabase.rpc('create_trade_with_tasks', {
+      p_partner_id: partnerId,
+      p_title: trimmedTitle,
+      p_notes: notes.trim() || null,
+      p_tasks: taskList,
+    })
     setSubmitting(false)
 
-    if (taskError) {
-      setFormError(`Trade created, but the tasks failed to save: ${taskError.message}`)
-      await loadTrades()
+    if (error) {
+      setFormError(describeError(error, 'Could not create that trade.'))
       return
     }
 
@@ -241,7 +232,7 @@ export default function Trades() {
       .update({ done: nextDone, completed_at: completedAt })
       .eq('id', task.id)
     if (error) {
-      setTradeError(task.trade_id, error.message)
+      setTradeError(task.trade_id, describeError(error, 'Could not update that task.'))
       setTasks((prev) => prev.map((row) => (row.id === task.id ? task : row)))
     } else {
       setTradeError(task.trade_id, null)
@@ -254,7 +245,7 @@ export default function Trades() {
     const { error } = await supabase.from('trades').update({ status }).eq('id', trade.id)
     setBusyTradeId(null)
     if (error) {
-      setTradeError(trade.id, error.message)
+      setTradeError(trade.id, describeError(error, 'Could not update the trade.'))
       return
     }
     await loadTrades()
@@ -267,7 +258,7 @@ export default function Trades() {
     const { error } = await supabase.from('trades').delete().eq('id', trade.id)
     setBusyTradeId(null)
     if (error) {
-      setTradeError(trade.id, error.message)
+      setTradeError(trade.id, describeError(error, 'Could not cancel the trade.'))
       return
     }
     await loadTrades()
@@ -279,7 +270,7 @@ export default function Trades() {
     const { error } = await supabase.rpc('confirm_trade_completion', { p_trade_id: trade.id })
     setBusyTradeId(null)
     if (error) {
-      setTradeError(trade.id, error.message)
+      setTradeError(trade.id, describeError(error, 'Could not confirm completion.'))
       return
     }
     setTradeNotes((prev) => ({
@@ -312,7 +303,9 @@ export default function Trades() {
         <div className="flex flex-wrap items-start gap-2">
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-semibold text-stone-900">
-              {trade.status === 'completed' && <span aria-hidden>🏅 </span>}
+              {trade.status === 'completed' && (
+                <Medal className="mr-1 inline h-4 w-4 text-amber-600" aria-hidden />
+              )}
               {trade.title}
             </h3>
             <Link
@@ -486,6 +479,7 @@ export default function Trades() {
               id="trade-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
+              maxLength={LIMITS.tradeTitle}
               placeholder="Garden bed build for guitar lessons"
               className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
             />
@@ -503,6 +497,7 @@ export default function Trades() {
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               rows={3}
+              maxLength={LIMITS.tradeNotes}
               placeholder="Anything your partner should know about timing, materials, or location."
               className="w-full resize-y rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
             />
@@ -520,6 +515,7 @@ export default function Trades() {
                     addTask()
                   }
                 }}
+                maxLength={LIMITS.tradeTaskTitle}
                 placeholder="Add a step, for example: buy lumber"
                 className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
               />

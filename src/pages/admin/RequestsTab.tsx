@@ -13,7 +13,7 @@ import {
   SectionHeader,
 } from './shared'
 import type { FilterOption } from './shared'
-import { buttonClass, describeError, isUniqueViolation } from './helpers'
+import { buttonClass, describeError } from './helpers'
 import type { Tone } from './helpers'
 
 type RequestStatus = JoinRequest['status']
@@ -95,30 +95,28 @@ export default function RequestsTab() {
     setBusyId(request.id)
     setActionError(null)
 
+    const reviewedAt = new Date().toISOString()
     if (status === 'approved') {
-      const { error: inviteError } = await supabase.from('invites').insert({
-        email: request.email,
-        invited_by: me.id,
-        note: 'Approved join request',
+      // Invite + status flip happen in one transaction server-side.
+      const { error: rpcError } = await supabase.rpc('approve_join_request', {
+        p_request_id: request.id,
       })
-
-      if (inviteError && !isUniqueViolation(inviteError)) {
-        setActionError(describeError(inviteError, 'We could not create the invite.'))
+      if (rpcError) {
+        setActionError(describeError(rpcError, 'We could not approve that request.'))
         setBusyId(null)
         return
       }
-    }
+    } else {
+      const { error: updateError } = await supabase
+        .from('join_requests')
+        .update({ status, reviewed_by: me.id, reviewed_at: reviewedAt })
+        .eq('id', request.id)
 
-    const reviewedAt = new Date().toISOString()
-    const { error: updateError } = await supabase
-      .from('join_requests')
-      .update({ status, reviewed_by: me.id, reviewed_at: reviewedAt })
-      .eq('id', request.id)
-
-    if (updateError) {
-      setActionError(describeError(updateError, 'We could not update that request.'))
-      setBusyId(null)
-      return
+      if (updateError) {
+        setActionError(describeError(updateError, 'We could not update that request.'))
+        setBusyId(null)
+        return
+      }
     }
 
     setRequests((current) =>

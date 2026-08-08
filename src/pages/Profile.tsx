@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Medal } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { describeError } from '../lib/errors'
 import { formatDate } from '../lib/format'
+import { LISTING_SELECT, REVIEWS_PAGE_SIZE } from '../lib/queries'
 import { nextRankFor, rankFor, rankProgress, tradeCount } from '../lib/ranks'
+import { cleanOptional, cleanText, LIMITS, safeHttpUrl } from '../lib/validate'
 import Avatar from '../components/Avatar'
 import RankBadge from '../components/RankBadge'
 import { Stars } from '../components/Stars'
@@ -21,8 +25,6 @@ import type {
 } from '../lib/types'
 
 const REVIEWER_JOIN = '*, reviewer:profiles!reviews_reviewer_id_fkey(id, display_name, avatar_url)'
-const LISTING_JOIN =
-  '*, owner:profiles!listings_owner_id_fkey(id, display_name, avatar_url), category:categories(*)'
 
 interface EditState {
   display_name: string
@@ -56,12 +58,17 @@ export default function Profile() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
   const meId = me?.id ?? null
   const isOwn = Boolean(meId && id && meId === id)
 
   const loadListings = useCallback(async () => {
     if (!id) return
-    let query = supabase.from('listings').select(LISTING_JOIN).eq('owner_id', id)
+    let query = supabase.from('listings').select(LISTING_SELECT).eq('owner_id', id)
     if (meId !== id) query = query.eq('status', 'active')
     const { data } = await query.order('created_at', { ascending: false })
     setListings((data as ListingWithRelations[] | null) ?? [])
@@ -74,7 +81,8 @@ export default function Profile() {
         .from('reviews')
         .select(REVIEWER_JOIN)
         .eq('reviewee_id', id)
-        .order('created_at', { ascending: false }),
+        .order('created_at', { ascending: false })
+        .limit(REVIEWS_PAGE_SIZE),
       supabase.from('leaderboard').select('*').eq('id', id).maybeSingle(),
       meId
         ? supabase
@@ -95,7 +103,7 @@ export default function Profile() {
     setLoading(true)
     setError(null)
 
-    let listingsQuery = supabase.from('listings').select(LISTING_JOIN).eq('owner_id', id)
+    let listingsQuery = supabase.from('listings').select(LISTING_SELECT).eq('owner_id', id)
     if (meId !== id) listingsQuery = listingsQuery.eq('status', 'active')
 
     const [profileResult, statsResult, badgesResult, listingsResult, reviewsResult, mineResult] =
@@ -112,7 +120,8 @@ export default function Profile() {
           .from('reviews')
           .select(REVIEWER_JOIN)
           .eq('reviewee_id', id)
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })
+          .limit(REVIEWS_PAGE_SIZE),
         meId
           ? supabase
               .from('reviews')
@@ -124,7 +133,7 @@ export default function Profile() {
       ])
 
     if (profileResult.error) {
-      setError(profileResult.error.message)
+      setError(describeError(profileResult.error, 'We could not load this profile.'))
       setLoading(false)
       return
     }
@@ -156,15 +165,23 @@ export default function Profile() {
   const handleSaveProfile = async (event: FormEvent) => {
     event.preventDefault()
     if (!member) return
-    setSaving(true)
     setSaveError(null)
+
+    const avatarInput = editState.avatar_url.trim()
+    const avatarUrl = avatarInput ? safeHttpUrl(avatarInput.slice(0, LIMITS.avatarUrl)) : null
+    if (avatarInput && !avatarUrl) {
+      setSaveError('The avatar URL must be a link starting with http:// or https://')
+      return
+    }
+
+    setSaving(true)
     const { data, error: updateError } = await supabase
       .from('profiles')
       .update({
-        display_name: editState.display_name.trim() || 'New member',
-        location: editState.location.trim() || null,
-        bio: editState.bio.trim() || null,
-        avatar_url: editState.avatar_url.trim() || null,
+        display_name: cleanText(editState.display_name, LIMITS.displayName) || 'New member',
+        location: cleanOptional(editState.location, LIMITS.location),
+        bio: cleanOptional(editState.bio, LIMITS.bio),
+        avatar_url: avatarUrl,
       })
       .eq('id', member.id)
       .select('*')
@@ -172,12 +189,26 @@ export default function Profile() {
     setSaving(false)
 
     if (updateError) {
-      setSaveError(updateError.message)
+      setSaveError(describeError(updateError, 'We could not save your profile.'))
       return
     }
     if (data) setMember(data as ProfileRow)
     setEditing(false)
     await refreshProfile()
+  }
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true)
+    setDeleteError(null)
+    const { error: rpcError } = await supabase.rpc('delete_my_account')
+    if (rpcError) {
+      setDeleteError(describeError(rpcError, 'We could not delete your account.'))
+      setDeleting(false)
+      return
+    }
+    // The server already revoked every session; just clear this browser.
+    await supabase.auth.signOut({ scope: 'local' })
+    navigate('/')
   }
 
   if (loading) {
@@ -266,6 +297,10 @@ export default function Profile() {
               >
                 {editing ? 'Cancel' : 'Edit profile'}
               </button>
+            ) : member.status === 'deleted' ? (
+              <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-500">
+                This member left the co-op
+              </span>
             ) : (
               <>
                 <button
@@ -301,6 +336,7 @@ export default function Profile() {
                 <input
                   id="edit-display-name"
                   value={editState.display_name}
+                  maxLength={LIMITS.displayName}
                   onChange={(event) =>
                     setEditState({ ...editState, display_name: event.target.value })
                   }
@@ -317,6 +353,7 @@ export default function Profile() {
                 <input
                   id="edit-location"
                   value={editState.location}
+                  maxLength={LIMITS.location}
                   onChange={(event) => setEditState({ ...editState, location: event.target.value })}
                   className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                 />
@@ -331,7 +368,9 @@ export default function Profile() {
               </label>
               <input
                 id="edit-avatar"
+                type="url"
                 value={editState.avatar_url}
+                maxLength={LIMITS.avatarUrl}
                 onChange={(event) => setEditState({ ...editState, avatar_url: event.target.value })}
                 placeholder="https://"
                 className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
@@ -345,6 +384,7 @@ export default function Profile() {
                 id="edit-bio"
                 rows={3}
                 value={editState.bio}
+                maxLength={LIMITS.bio}
                 onChange={(event) => setEditState({ ...editState, bio: event.target.value })}
                 placeholder="What do you trade? What are you looking for?"
                 className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
@@ -437,7 +477,7 @@ export default function Profile() {
                 key={badge.id}
                 className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-900"
               >
-                <span aria-hidden>🏅</span>
+                <Medal className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                 <span className="font-medium">{badge.label}</span>
                 <span className="text-xs text-amber-700/70">{formatDate(badge.created_at)}</span>
               </span>
@@ -483,7 +523,7 @@ export default function Profile() {
         </h2>
 
         <div className="space-y-4">
-          {!isOwn && meId && (
+          {!isOwn && meId && member.status !== 'deleted' && (
             <ReviewForm revieweeId={member.id} existing={myReview} onSaved={loadReviews} />
           )}
 
@@ -506,6 +546,72 @@ export default function Profile() {
           )}
         </div>
       </section>
+
+      {/* ---------- delete account (own profile only) ---------- */}
+      {isOwn && (
+        <section className="rounded-2xl border border-red-200 bg-white p-6">
+          <h2 className="text-lg font-bold tracking-tight text-stone-900">Delete account</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-stone-600">
+            Deleting your account permanently removes your sign-in, email, profile details, and
+            listings, and signs you out of every device. Messages, reviews, and trades you shared
+            with other members are kept for their records, shown as &ldquo;Deleted member&rdquo; —
+            see the{' '}
+            <Link to="/privacy" className="font-medium text-emerald-700 underline underline-offset-2">
+              Privacy Policy
+            </Link>
+            . This cannot be undone.
+          </p>
+
+          {!deleteOpen ? (
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(true)}
+              className="mt-4 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:border-red-300 hover:bg-red-50"
+            >
+              Delete my account
+            </button>
+          ) : (
+            <div className="mt-4 space-y-3 rounded-xl border border-red-200 bg-red-50 p-4">
+              <label htmlFor="delete-confirm" className="block text-sm font-medium text-red-800">
+                Type <span className="font-bold">delete</span> to confirm
+              </label>
+              <input
+                id="delete-confirm"
+                value={deleteConfirm}
+                onChange={(event) => setDeleteConfirm(event.target.value)}
+                autoComplete="off"
+                placeholder="delete"
+                className="w-full max-w-xs rounded-xl border border-red-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              />
+              {deleteError && (
+                <p className="rounded-lg bg-red-100 px-3 py-2 text-sm text-red-800">{deleteError}</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={deleting || deleteConfirm.trim().toLowerCase() !== 'delete'}
+                  onClick={() => void handleDeleteAccount()}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting...' : 'Permanently delete'}
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => {
+                    setDeleteOpen(false)
+                    setDeleteConfirm('')
+                    setDeleteError(null)
+                  }}
+                  className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }

@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { BadgeCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { describeError } from '../lib/errors'
 import { timeAgo } from '../lib/format'
 import Avatar from './Avatar'
 import { Stars } from './Stars'
@@ -35,7 +37,7 @@ export default function ReviewCard({ review, isOwn, canDelete, onDeleted }: Revi
     const { error: deleteError } = await supabase.from('reviews').delete().eq('id', review.id)
     setDeleting(false)
     if (deleteError) {
-      setError(deleteError.message)
+      setError(describeError(deleteError, 'Could not delete the review.'))
       return
     }
     onDeleted?.()
@@ -98,7 +100,8 @@ export default function ReviewCard({ review, isOwn, canDelete, onDeleted }: Revi
       {review.vouch && (
         <div className="mt-3">
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-            Vouched ✓
+            <BadgeCheck className="h-3.5 w-3.5" aria-hidden />
+            Vouched
           </span>
         </div>
       )}

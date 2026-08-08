@@ -19,3 +19,26 @@ export function formatDate(iso: string): string {
     day: 'numeric',
   })
 }
+
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+/** "Sat, Aug 15, 2026, 6:00 PM – 8:00 PM" same-day, else two full datetimes. */
+export function formatEventRange(startsAt: string, endsAt: string | null): string {
+  const start = formatDateTime(startsAt)
+  if (!endsAt) return start
+  const sameDay = new Date(startsAt).toDateString() === new Date(endsAt).toDateString()
+  return `${start} – ${sameDay ? formatTime(endsAt) : formatDateTime(endsAt)}`
+}

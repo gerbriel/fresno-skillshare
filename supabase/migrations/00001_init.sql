@@ -1,5 +1,5 @@
 -- =============================================================
--- Barter Fresno - initial schema
+-- Fresno Skillshare - initial schema
 -- Run this in the Supabase SQL editor (or via supabase db push).
 --
 -- Security model:
@@ -176,7 +176,7 @@ create table public.categories (
   name text not null unique,
   slug text not null unique,
   description text,
-  emoji text default '🔁',
+  icon text default 'repeat',
   created_at timestamptz not null default now()
 );
 
@@ -587,7 +587,7 @@ create policy "Admins delete site settings"
 
 insert into public.site_settings (key, value) values
   ('hero_heading', '"Trade skills, not dollars."'),
-  ('hero_subheading', '"Barter Fresno is an invite-only co-op where neighbors trade goods and services directly. No money, just mutual help and community credit."'),
+  ('hero_subheading', '"Fresno Skillshare is an invite-only co-op where neighbors trade goods and services directly. No money, just mutual help and community credit."'),
   ('about', '"We are a Fresno community cooperative. Members list what they can offer and what they are looking for, then trade directly with each other. Reputation is built through reviews, vouches, and completed trades."'),
   ('how_it_works', '["Get invited by a member or request to join.", "List the goods or services you offer and what you are seeking.", "Browse the feed, match with a neighbor, and propose a trade.", "Complete the trade, check off the tasks, and earn badges.", "Review and vouch for each other to build community credit."]');
 
@@ -631,11 +631,11 @@ where p.status = 'active';
 
 -- ---------- seed categories ----------
 
-insert into public.categories (name, slug, description, emoji) values
-  ('Home and Repairs', 'home-repairs', 'Handyman work, plumbing, electrical, painting', '🔧'),
-  ('Food and Garden', 'food-garden', 'Produce, baked goods, gardening, canning', '🥕'),
-  ('Skills and Lessons', 'skills-lessons', 'Tutoring, music lessons, language exchange', '🎓'),
-  ('Creative and Design', 'creative-design', 'Art, photography, graphic design, writing', '🎨'),
-  ('Tech Help', 'tech-help', 'Computer repair, web help, phone setup', '💻'),
-  ('Childcare and Errands', 'childcare-errands', 'Babysitting, rides, pickups, pet care', '🚗'),
-  ('Goods and Equipment', 'goods-equipment', 'Tools, furniture, clothing, equipment loans', '📦');
+insert into public.categories (name, slug, description, icon) values
+  ('Home and Repairs', 'home-repairs', 'Handyman work, plumbing, electrical, painting', 'wrench'),
+  ('Food and Garden', 'food-garden', 'Produce, baked goods, gardening, canning', 'carrot'),
+  ('Skills and Lessons', 'skills-lessons', 'Tutoring, music lessons, language exchange', 'graduation-cap'),
+  ('Creative and Design', 'creative-design', 'Art, photography, graphic design, writing', 'palette'),
+  ('Tech Help', 'tech-help', 'Computer repair, web help, phone setup', 'laptop'),
+  ('Childcare and Errands', 'childcare-errands', 'Babysitting, rides, pickups, pet care', 'car'),
+  ('Goods and Equipment', 'goods-equipment', 'Tools, furniture, clothing, equipment loans', 'package');

@@ -1,5 +1,5 @@
 export type Role = 'admin' | 'member'
-export type MemberStatus = 'pending' | 'active' | 'suspended'
+export type MemberStatus = 'pending' | 'active' | 'suspended' | 'deleted'
 export type Score = 1 | 2 | 3 | 4 | 5
 
 export interface Profile {
@@ -40,7 +40,7 @@ export interface Category {
   name: string
   slug: string
   description: string | null
-  emoji: string | null
+  icon: string | null
   created_at: string
 }
 
@@ -175,6 +175,17 @@ export interface LeaderboardRow {
   completed_trades: number
   badge_count: number
   score: number
+}
+
+export interface CoopEvent {
+  id: string
+  title: string
+  location: string | null
+  notes: string | null
+  starts_at: string
+  ends_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface SiteSettings {

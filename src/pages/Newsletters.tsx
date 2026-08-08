@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { describeError } from '../lib/errors'
 import { formatDate } from '../lib/format'
 import type { Newsletter } from '../lib/types'
 
@@ -44,9 +45,10 @@ export default function Newsletters() {
         .select('*')
         .eq('status', 'sent')
         .order('sent_at', { ascending: false })
+        .limit(50)
       if (cancelled) return
       if (fetchError) {
-        setError(fetchError.message)
+        setError(describeError(fetchError, 'We could not load the newsletters.'))
       } else {
         setError(null)
         setNewsletters((data ?? []) as Newsletter[])

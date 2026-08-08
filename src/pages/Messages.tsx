@@ -3,12 +3,21 @@ import type { KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { describeError } from '../lib/errors'
 import { timeAgo } from '../lib/format'
+import { MESSAGES_PAGE_SIZE } from '../lib/queries'
+import { cleanText, LIMITS } from '../lib/validate'
 import Avatar from '../components/Avatar'
 import type { Message, ProfileLite, ThreadWithProfiles } from '../lib/types'
 
 const THREAD_SELECT =
   '*, a:profiles!message_threads_a_id_fkey(id, display_name, avatar_url), b:profiles!message_threads_b_id_fkey(id, display_name, avatar_url)'
+
+/** A message shown in the pane; pending/failed exist only client-side. */
+interface LocalMessage extends Message {
+  pending?: boolean
+  failed?: boolean
+}
 
 function otherPerson(thread: ThreadWithProfiles, me: string): ProfileLite {
   return thread.a_id === me ? thread.b : thread.a
@@ -36,15 +45,19 @@ export default function Messages() {
   const [threadsError, setThreadsError] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
 
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<LocalMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [messagesError, setMessagesError] = useState<string | null>(null)
+  const [hasEarlier, setHasEarlier] = useState(false)
+  const [loadingEarlier, setLoadingEarlier] = useState(false)
 
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Prepending history must not yank the view back to the bottom.
+  const stickToBottomRef = useRef(true)
 
   const loadThreads = useCallback(async () => {
     if (!me) return
@@ -52,8 +65,9 @@ export default function Messages() {
       .from('message_threads')
       .select(THREAD_SELECT)
       .order('last_message_at', { ascending: false })
+      .limit(100)
     if (error) {
-      setThreadsError(error.message)
+      setThreadsError(describeError(error, 'We could not load your conversations.'))
     } else {
       setThreadsError(null)
       setThreads((data ?? []) as unknown as ThreadWithProfiles[])
@@ -88,7 +102,7 @@ export default function Messages() {
         .limit(1)
       if (cancelled) return
       if (findError) {
-        setStartError(findError.message)
+        setStartError(describeError(findError, 'Could not open that conversation.'))
         return
       }
 
@@ -101,7 +115,7 @@ export default function Messages() {
           .single()
         if (cancelled) return
         if (insertError) {
-          setStartError(insertError.message)
+          setStartError(describeError(insertError, 'Could not start that conversation.'))
           return
         }
         id = created?.id as string | undefined
@@ -141,16 +155,21 @@ export default function Messages() {
     setDraft('')
 
     const loadMessages = async () => {
+      // Newest window only; older history loads on demand.
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('thread_id', threadId)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PAGE_SIZE)
       if (cancelled) return
       if (error) {
-        setMessagesError(error.message)
+        setMessagesError(describeError(error, 'We could not load this conversation.'))
       } else {
-        setMessages((data ?? []) as Message[])
+        const rows = ((data ?? []) as Message[]).reverse()
+        stickToBottomRef.current = true
+        setMessages(rows)
+        setHasEarlier(rows.length === MESSAGES_PAGE_SIZE)
       }
       setMessagesLoading(false)
     }
@@ -210,16 +229,55 @@ export default function Messages() {
   }, [me, activeThread])
 
   useEffect(() => {
+    if (!stickToBottomRef.current) {
+      stickToBottomRef.current = true
+      return
+    }
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, threadId, messagesLoading])
 
-  const send = async () => {
-    const body = draft.trim()
+  const loadEarlier = async () => {
+    const oldest = messages[0]
+    if (!threadId || !oldest || loadingEarlier) return
+    setLoadingEarlier(true)
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('thread_id', threadId)
+      .lt('created_at', oldest.created_at)
+      .order('created_at', { ascending: false })
+      .limit(MESSAGES_PAGE_SIZE)
+    if (error) {
+      setMessagesError(describeError(error, 'We could not load earlier messages.'))
+    } else {
+      const rows = ((data ?? []) as Message[]).reverse()
+      stickToBottomRef.current = false
+      setMessages((prev) => [...rows, ...prev])
+      setHasEarlier(rows.length === MESSAGES_PAGE_SIZE)
+    }
+    setLoadingEarlier(false)
+  }
+
+  // Optimistic send: the message appears immediately, then is confirmed
+  // by the insert (or marked failed with a retry affordance).
+  const send = async (bodyOverride?: string, retryId?: string) => {
+    const body = cleanText(bodyOverride ?? draft, LIMITS.messageBody)
     if (!me || !threadId || !body || sending) return
     setSending(true)
     setSendError(null)
-    setDraft('')
+    if (!bodyOverride) setDraft('')
+
+    const tempId = `pending-${crypto.randomUUID()}`
+    const optimistic: LocalMessage = {
+      id: tempId,
+      thread_id: threadId,
+      sender_id: me,
+      body,
+      created_at: new Date().toISOString(),
+      pending: true,
+    }
+    setMessages((prev) => [...prev.filter((message) => message.id !== retryId), optimistic])
 
     const { data, error } = await supabase
       .from('messages')
@@ -229,14 +287,21 @@ export default function Messages() {
     setSending(false)
 
     if (error) {
-      setSendError(error.message)
-      setDraft(body)
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === tempId ? { ...message, pending: false, failed: true } : message
+        )
+      )
+      setSendError(describeError(error, 'Your message was not sent.'))
       return
     }
     const saved = data as Message
-    setMessages((prev) =>
-      prev.some((message) => message.id === saved.id) ? prev : [...prev, saved]
-    )
+    setMessages((prev) => {
+      const withoutTemp = prev.filter((message) => message.id !== tempId)
+      return withoutTemp.some((message) => message.id === saved.id)
+        ? withoutTemp
+        : [...withoutTemp, saved]
+    })
     void loadThreads()
   }
 
@@ -404,32 +469,58 @@ export default function Messages() {
                     No messages yet. Say hello.
                   </p>
                 ) : (
-                  messages.map((message) => {
-                    const mine = message.sender_id === me
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div
-                          className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line ${
-                            mine
-                              ? 'bg-emerald-600 text-white'
-                              : 'border border-stone-200 bg-white text-stone-800'
-                          }`}
+                  <>
+                    {hasEarlier && (
+                      <div className="flex justify-center pb-1">
+                        <button
+                          type="button"
+                          onClick={() => void loadEarlier()}
+                          disabled={loadingEarlier}
+                          className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs font-medium text-stone-600 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <p>{message.body}</p>
-                          <p
-                            className={`mt-1 text-[10px] ${
-                              mine ? 'text-emerald-100' : 'text-stone-400'
+                          {loadingEarlier ? 'Loading...' : 'Load earlier messages'}
+                        </button>
+                      </div>
+                    )}
+                    {messages.map((message) => {
+                      const mine = message.sender_id === me
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div
+                            className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line ${
+                              mine
+                                ? 'bg-emerald-600 text-white'
+                                : 'border border-stone-200 bg-white text-stone-800'
+                            } ${message.pending ? 'opacity-60' : ''} ${
+                              message.failed ? 'bg-red-600' : ''
                             }`}
                           >
-                            {timeAgo(message.created_at)}
-                          </p>
+                            <p>{message.body}</p>
+                            {message.failed ? (
+                              <button
+                                type="button"
+                                onClick={() => void send(message.body, message.id)}
+                                className="mt-1 text-[10px] font-semibold text-red-100 underline"
+                              >
+                                Not sent. Tap to retry
+                              </button>
+                            ) : (
+                              <p
+                                className={`mt-1 text-[10px] ${
+                                  mine ? 'text-emerald-100' : 'text-stone-400'
+                                }`}
+                              >
+                                {message.pending ? 'Sending...' : timeAgo(message.created_at)}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })
+                      )
+                    })}
+                  </>
                 )}
               </div>
 
@@ -441,6 +532,7 @@ export default function Messages() {
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={handleKeyDown}
                     rows={2}
+                    maxLength={LIMITS.messageBody}
                     placeholder="Write a message. Enter to send, Shift plus Enter for a new line."
                     className="flex-1 resize-none rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                   />

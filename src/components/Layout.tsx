@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Avatar from './Avatar'
@@ -9,6 +9,7 @@ const navLinks = [
   { to: '/categories', label: 'Categories' },
   { to: '/leaderboard', label: 'Leaderboard' },
   { to: '/trades', label: 'Trades' },
+  { to: '/events', label: 'Events' },
   { to: '/news', label: 'News' },
 ]
 
@@ -40,16 +41,21 @@ export default function Layout() {
   }, [profile, location.pathname])
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
-    `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-      isActive ? 'bg-emerald-600 text-white' : 'text-stone-600 hover:bg-stone-100'
+    `whitespace-nowrap rounded-full px-3.5 py-2 text-sm transition-colors ${
+      isActive
+        ? 'bg-emerald-50 font-semibold text-emerald-700'
+        : 'font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900'
     }`
 
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-stone-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-          <NavLink to="/feed" className="text-lg font-bold tracking-tight text-emerald-700">
-            Barter<span className="text-amber-600">Fresno</span>
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
+          <NavLink
+            to="/feed"
+            className="shrink-0 text-lg font-bold tracking-tight text-emerald-700 transition-opacity hover:opacity-80"
+          >
+            Fresno<span className="text-amber-600">Skillshare</span>
           </NavLink>
 
           <nav className="hidden items-center gap-1 md:flex">
@@ -74,18 +80,18 @@ export default function Layout() {
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((open) => !open)}
-                className="flex items-center gap-2 rounded-full p-0.5 hover:ring-2 hover:ring-emerald-200"
+                className="flex shrink-0 items-center rounded-full p-0.5 ring-emerald-200 transition-shadow hover:ring-2"
                 aria-label="Account menu"
               >
                 <Avatar name={profile.display_name} url={profile.avatar_url} size="sm" />
               </button>
               {menuOpen && (
                 <div
-                  className="absolute right-0 mt-2 w-48 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-lg"
+                  className="absolute right-0 mt-2 w-48 overflow-hidden rounded-2xl border border-stone-200 bg-white py-1 shadow-lg shadow-stone-900/5"
                   onMouseLeave={() => setMenuOpen(false)}
                 >
                   <button
-                    className="block w-full px-4 py-2 text-left text-sm hover:bg-stone-50"
+                    className="block w-full px-4 py-2.5 text-left text-sm text-stone-700 transition-colors hover:bg-stone-50"
                     onClick={() => {
                       setMenuOpen(false)
                       navigate(`/u/${profile.id}`)
@@ -95,7 +101,7 @@ export default function Layout() {
                   </button>
                   {isAdmin && (
                     <button
-                      className="block w-full px-4 py-2 text-left text-sm hover:bg-stone-50"
+                      className="block w-full px-4 py-2.5 text-left text-sm text-stone-700 transition-colors hover:bg-stone-50"
                       onClick={() => {
                         setMenuOpen(false)
                         navigate('/admin')
@@ -105,7 +111,7 @@ export default function Layout() {
                     </button>
                   )}
                   <button
-                    className="block w-full border-t border-stone-100 px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                    className="mt-1 block w-full border-t border-stone-100 px-4 py-2.5 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
                     onClick={async () => {
                       setMenuOpen(false)
                       await signOut()
@@ -121,7 +127,7 @@ export default function Layout() {
         </div>
 
         {/* mobile nav */}
-        <nav className="flex gap-1 overflow-x-auto border-t border-stone-100 px-4 py-2 md:hidden">
+        <nav className="flex gap-1 overflow-x-auto border-t border-stone-100 px-3 py-2 sm:px-5 md:hidden">
           {[...navLinks, { to: '/messages', label: unread > 0 ? `Messages (${unread})` : 'Messages' }].map(
             (link) => (
               <NavLink key={link.to} to={link.to} className={linkClass}>
@@ -132,9 +138,23 @@ export default function Layout() {
         </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <Outlet />
       </main>
+
+      <footer className="border-t border-stone-200 bg-white">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-5 text-xs text-stone-400 sm:px-6">
+          <span>Fresno Skillshare · Neighbors helping neighbors</span>
+          <span className="flex gap-4">
+            <Link to="/privacy" className="transition-colors hover:text-stone-600">
+              Privacy Policy
+            </Link>
+            <Link to="/terms" className="transition-colors hover:text-stone-600">
+              Terms
+            </Link>
+          </span>
+        </div>
+      </footer>
     </div>
   )
 }

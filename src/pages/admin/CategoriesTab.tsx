@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
+import { LIMITS } from '../../lib/validate'
 import type { Category } from '../../lib/types'
+import { CATEGORY_ICONS, CategoryIcon } from '../../components/CategoryIcon'
 import { EmptyBlock, ErrorBlock, Feedback, LoadingBlock, SectionHeader } from './shared'
 import {
   buttonClass,
@@ -13,10 +15,47 @@ import {
   slugify,
 } from './helpers'
 
+const DEFAULT_ICON = 'repeat'
+
 interface EditDraft {
-  emoji: string
+  icon: string
   name: string
   description: string
+}
+
+interface IconPickerProps {
+  value: string
+  onChange: (icon: string) => void
+}
+
+function IconPicker({ value, onChange }: IconPickerProps) {
+  return (
+    <div>
+      <span className={labelClass}>Icon</span>
+      <div role="group" aria-label="Icon" className="mt-1.5 grid grid-cols-8 gap-1.5">
+        {Object.keys(CATEGORY_ICONS).map((key) => {
+          const selected = key === value
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onChange(key)}
+              aria-label={key}
+              aria-pressed={selected}
+              title={key}
+              className={`flex items-center justify-center rounded-lg border p-2 transition-colors ${
+                selected
+                  ? 'border-emerald-600 bg-emerald-600 text-white'
+                  : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              <CategoryIcon name={key} className="h-4 w-4" />
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export default function CategoriesTab() {
@@ -24,7 +63,7 @@ export default function CategoriesTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [emoji, setEmoji] = useState('🔁')
+  const [icon, setIcon] = useState(DEFAULT_ICON)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [creating, setCreating] = useState(false)
@@ -32,7 +71,11 @@ export default function CategoriesTab() {
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
 
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<EditDraft>({ emoji: '🔁', name: '', description: '' })
+  const [draft, setDraft] = useState<EditDraft>({
+    icon: DEFAULT_ICON,
+    name: '',
+    description: '',
+  })
   const [rowError, setRowError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
@@ -85,7 +128,7 @@ export default function CategoriesTab() {
         name: trimmedName,
         slug: newSlug,
         description: description.trim().length > 0 ? description.trim() : null,
-        emoji: emoji.trim().length > 0 ? emoji.trim() : '🔁',
+        icon: icon || DEFAULT_ICON,
       })
       .select('*')
       .single()
@@ -105,7 +148,7 @@ export default function CategoriesTab() {
     )
     setName('')
     setDescription('')
-    setEmoji('🔁')
+    setIcon(DEFAULT_ICON)
     setFormSuccess(`Added ${trimmedName}.`)
     setCreating(false)
   }
@@ -114,7 +157,7 @@ export default function CategoriesTab() {
     setRowError(null)
     setEditingId(category.id)
     setDraft({
-      emoji: category.emoji ?? '🔁',
+      icon: category.icon ?? DEFAULT_ICON,
       name: category.name,
       description: category.description ?? '',
     })
@@ -134,7 +177,7 @@ export default function CategoriesTab() {
       name: trimmedName,
       slug: draftSlug,
       description: draft.description.trim().length > 0 ? draft.description.trim() : null,
-      emoji: draft.emoji.trim().length > 0 ? draft.emoji.trim() : '🔁',
+      icon: draft.icon || DEFAULT_ICON,
     }
 
     const { error: updateError } = await supabase
@@ -202,37 +245,25 @@ export default function CategoriesTab() {
       <form onSubmit={handleCreate} className={`${cardClass} space-y-4`}>
         <h3 className="font-semibold text-stone-900">New category</h3>
 
-        <div className="grid gap-4 sm:grid-cols-[6rem_1fr]">
-          <div>
-            <label htmlFor="category-emoji" className={labelClass}>
-              Emoji
-            </label>
-            <input
-              id="category-emoji"
-              type="text"
-              value={emoji}
-              onChange={(event) => setEmoji(event.target.value)}
-              maxLength={4}
-              className={`mt-1.5 text-center text-lg ${inputClass}`}
-            />
-          </div>
-          <div>
-            <label htmlFor="category-name" className={labelClass}>
-              Name
-            </label>
-            <input
-              id="category-name"
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Home and Repairs"
-              className={`mt-1.5 ${inputClass}`}
-            />
-            <p className="mt-1.5 text-xs text-stone-400">
-              Link preview: <span className="font-mono text-stone-500">/categories/{newSlug || '...'}</span>
-            </p>
-          </div>
+        <div>
+          <label htmlFor="category-name" className={labelClass}>
+            Name
+          </label>
+          <input
+            id="category-name"
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={LIMITS.categoryName}
+            placeholder="Home and Repairs"
+            className={`mt-1.5 ${inputClass}`}
+          />
+          <p className="mt-1.5 text-xs text-stone-400">
+            Link preview: <span className="font-mono text-stone-500">/categories/{newSlug || '...'}</span>
+          </p>
         </div>
+
+        <IconPicker value={icon} onChange={setIcon} />
 
         <div>
           <label htmlFor="category-description" className={labelClass}>
@@ -242,6 +273,7 @@ export default function CategoriesTab() {
             id="category-description"
             value={description}
             onChange={(event) => setDescription(event.target.value)}
+            maxLength={LIMITS.categoryDescription}
             rows={2}
             placeholder="Handyman work, plumbing, electrical, painting"
             className={`mt-1.5 resize-y ${inputClass}`}
@@ -275,26 +307,22 @@ export default function CategoriesTab() {
                   key={category.id}
                   className="space-y-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm"
                 >
-                  <div className="grid gap-3 sm:grid-cols-[6rem_1fr]">
-                    <input
-                      type="text"
-                      value={draft.emoji}
-                      onChange={(event) => setDraft({ ...draft, emoji: event.target.value })}
-                      maxLength={4}
-                      aria-label="Emoji"
-                      className={`text-center text-lg ${inputClass}`}
-                    />
-                    <input
-                      type="text"
-                      value={draft.name}
-                      onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                      aria-label="Name"
-                      className={inputClass}
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    value={draft.name}
+                    onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                    maxLength={LIMITS.categoryName}
+                    aria-label="Name"
+                    className={inputClass}
+                  />
+                  <IconPicker
+                    value={draft.icon}
+                    onChange={(next) => setDraft({ ...draft, icon: next })}
+                  />
                   <textarea
                     value={draft.description}
                     onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+                    maxLength={LIMITS.categoryDescription}
                     rows={2}
                     aria-label="Description"
                     placeholder="Description (optional)"
@@ -332,8 +360,8 @@ export default function CategoriesTab() {
                 className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="text-2xl leading-none" aria-hidden>
-                    {category.emoji ?? '🔁'}
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-stone-100">
+                    <CategoryIcon name={category.icon} className="h-5 w-5 text-stone-600" />
                   </span>
                   <div className="min-w-0">
                     <p className="font-semibold text-stone-900">{category.name}</p>

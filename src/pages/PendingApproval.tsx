@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Ban, Clock, Sprout } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function PendingApproval() {
@@ -42,7 +43,9 @@ export default function PendingApproval() {
   if (!session) {
     return (
       <Shell>
-        <div className="text-4xl">👋</div>
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+          <Clock className="h-7 w-7" aria-hidden />
+        </div>
         <h1 className="mt-4 text-2xl font-bold tracking-tight text-stone-900">You are signed out</h1>
         <p className="mt-3 leading-relaxed text-stone-600">
           Sign in to check on your membership, or head back to the home page to request an invite.
@@ -73,7 +76,17 @@ export default function PendingApproval() {
 
   return (
     <Shell>
-      <div className="text-4xl">{suspended ? '🚫' : '🌱'}</div>
+      <div
+        className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full ${
+          suspended ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'
+        }`}
+      >
+        {suspended ? (
+          <Ban className="h-7 w-7" aria-hidden />
+        ) : (
+          <Sprout className="h-7 w-7" aria-hidden />
+        )}
+      </div>
 
       {suspended ? (
         <>
@@ -91,8 +104,8 @@ export default function PendingApproval() {
             Your account is awaiting approval
           </h1>
           <p className="mt-3 leading-relaxed text-stone-600">
-            Thanks for signing up{profile?.display_name ? `, ${profile.display_name}` : ''}. Barter
-            Fresno is invite-only, so an admin reviews every new account. You will get access to the
+            Thanks for signing up{profile?.display_name ? `, ${profile.display_name}` : ''}. Fresno
+            Skillshare is invite-only, so an admin reviews every new account. You will get access to the
             feed as soon as you are approved.
           </p>
           <p className="mt-4 text-sm leading-relaxed text-stone-500">
@@ -150,7 +163,7 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen flex-col bg-stone-50 text-stone-800">
       <header className="mx-auto w-full max-w-5xl px-5 py-6">
         <Link to="/" className="text-lg font-bold tracking-tight text-emerald-700">
-          Barter<span className="text-amber-600">Fresno</span>
+          Fresno<span className="text-amber-600">Skillshare</span>
         </Link>
       </header>
 

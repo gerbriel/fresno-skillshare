@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Star } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { describeError } from '../lib/errors'
 import Avatar from '../components/Avatar'
 import RankBadge from '../components/RankBadge'
 import type { LeaderboardRow } from '../lib/types'
@@ -23,7 +25,7 @@ export default function Leaderboard() {
       .order('display_name', { ascending: true })
       .limit(50)
     if (fetchError) {
-      setError(fetchError.message)
+      setError(describeError(fetchError, 'We could not load the leaderboard.'))
       setRows([])
     } else {
       setRows((data as LeaderboardRow[] | null) ?? [])
@@ -127,7 +129,10 @@ export default function Leaderboard() {
                     <p className="mt-0.5 truncate text-xs text-stone-500">
                       <span className="font-semibold text-amber-600">{row.score} credit</span>
                       {' · '}
-                      <span className="text-amber-500">★</span>
+                      <Star
+                        className="inline h-3 w-3 fill-current text-amber-500"
+                        aria-hidden
+                      />{' '}
                       {Number(row.avg_rating).toFixed(1)} ({row.review_count})
                       {' · '}
                       {row.completed_trades} trades

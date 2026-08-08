@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { HeartHandshake, Sprout } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { cleanOptional, cleanText, isValidEmail, LIMITS } from '../lib/validate'
 import type { SiteSettings } from '../lib/types'
 
 const SETTING_KEYS: string[] = ['hero_heading', 'hero_subheading', 'about', 'how_it_works']
@@ -10,7 +12,7 @@ const SETTING_KEYS: string[] = ['hero_heading', 'hero_subheading', 'about', 'how
 const FALLBACK: SiteSettings = {
   hero_heading: 'Trade skills, not dollars.',
   hero_subheading:
-    'Barter Fresno is an invite-only co-op where neighbors trade goods and services directly. No money, just mutual help and community credit.',
+    'Fresno Skillshare is an invite-only co-op where neighbors trade goods and services directly. No money, just mutual help and community credit.',
   about:
     'We are a Fresno community cooperative. Members list what they can offer and what they are looking for, then trade directly with each other. Reputation is built through reviews, vouches, and completed trades.',
   how_it_works: [
@@ -51,6 +53,9 @@ export default function Landing() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
+  // Honeypot: humans never see or fill this field; bots that do are
+  // quietly accepted without writing anything.
+  const [website, setWebsite] = useState('')
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -92,12 +97,20 @@ export default function Landing() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const trimmedName = name.trim()
+    const trimmedName = cleanText(name, LIMITS.joinName)
     const trimmedEmail = email.trim()
-    const trimmedMessage = message.trim()
+
+    if (website) {
+      setSubmitState('sent')
+      return
+    }
 
     if (!trimmedName || !trimmedEmail) {
       setSubmitError('Please add your name and email so we know who to reach.')
+      return
+    }
+    if (!isValidEmail(trimmedEmail)) {
+      setSubmitError('That email address does not look right. Double-check it and try again.')
       return
     }
 
@@ -107,7 +120,7 @@ export default function Landing() {
     const { error } = await supabase.from('join_requests').insert({
       name: trimmedName,
       email: trimmedEmail,
-      message: trimmedMessage.length > 0 ? trimmedMessage : null,
+      message: cleanOptional(message, LIMITS.joinMessage),
     })
 
     if (error) {
@@ -133,7 +146,7 @@ export default function Landing() {
       <header className="sticky top-0 z-20 border-b border-stone-200 bg-stone-50/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
           <span className="text-lg font-bold tracking-tight text-emerald-700">
-            Barter<span className="text-amber-600">Fresno</span>
+            Fresno<span className="text-amber-600">Skillshare</span>
           </span>
           <Link
             to="/login"
@@ -146,24 +159,25 @@ export default function Landing() {
 
       <main>
         {/* Hero */}
-        <section className="mx-auto max-w-5xl px-5 pb-16 pt-16 sm:pt-24">
-          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-            🤝 Invite-only community co-op
+        <section className="mx-auto max-w-5xl px-5 pb-20 pt-14 sm:pb-28 sm:pt-24">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            <HeartHandshake className="h-3.5 w-3.5" aria-hidden />
+            Invite-only community co-op
           </span>
 
           {contentLoading ? (
-            <div className="mt-8 animate-pulse space-y-4">
-              <div className="h-12 w-4/5 rounded-2xl bg-stone-200" />
-              <div className="h-12 w-3/5 rounded-2xl bg-stone-200" />
+            <div className="mt-7 animate-pulse space-y-4">
+              <div className="h-12 w-4/5 rounded-2xl bg-stone-200 sm:h-14" />
+              <div className="h-12 w-3/5 rounded-2xl bg-stone-200 sm:h-14" />
               <div className="h-5 w-full max-w-2xl rounded-full bg-stone-200" />
               <div className="h-5 w-2/3 max-w-xl rounded-full bg-stone-200" />
             </div>
           ) : (
             <>
-              <h1 className="mt-8 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-stone-900 sm:text-6xl">
+              <h1 className="mt-7 max-w-3xl text-4xl font-bold leading-[1.1] tracking-tight text-balance text-stone-900 sm:text-5xl lg:text-6xl">
                 {content.hero_heading}
               </h1>
-              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-600">
+              <p className="mt-6 max-w-2xl text-lg leading-relaxed text-stone-600 sm:text-xl">
                 {content.hero_subheading}
               </p>
             </>
@@ -276,8 +290,12 @@ export default function Landing() {
             <div>
               {submitState === 'sent' ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-                  <div className="text-3xl">🌱</div>
-                  <h3 className="mt-3 text-xl font-semibold text-emerald-800">Request received</h3>
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                    <Sprout className="h-6 w-6" aria-hidden />
+                  </div>
+                  <h3 className="mt-4 text-xl font-semibold tracking-tight text-emerald-800">
+                    Request received
+                  </h3>
                   <p className="mt-2 text-sm leading-relaxed text-emerald-700">
                     Thanks for reaching out. An admin will review your request and email you when
                     there is news.
@@ -292,6 +310,18 @@ export default function Landing() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="absolute -left-[9999px] top-auto" aria-hidden="true">
+                    <label htmlFor="join-website">Leave this field empty</label>
+                    <input
+                      id="join-website"
+                      type="text"
+                      value={website}
+                      onChange={(event) => setWebsite(event.target.value)}
+                      tabIndex={-1}
+                      autoComplete="off"
+                    />
+                  </div>
+
                   <div>
                     <label htmlFor="join-name" className="block text-sm font-medium text-stone-700">
                       Name
@@ -302,6 +332,7 @@ export default function Landing() {
                       value={name}
                       onChange={(event) => setName(event.target.value)}
                       required
+                      maxLength={LIMITS.joinName}
                       autoComplete="name"
                       placeholder="Your name"
                       className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-stone-800 outline-none transition-colors focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
@@ -318,6 +349,7 @@ export default function Landing() {
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       required
+                      maxLength={LIMITS.email}
                       autoComplete="email"
                       placeholder="you@example.com"
                       className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-stone-800 outline-none transition-colors focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
@@ -333,6 +365,7 @@ export default function Landing() {
                       value={message}
                       onChange={(event) => setMessage(event.target.value)}
                       rows={4}
+                      maxLength={LIMITS.joinMessage}
                       placeholder="What can you offer, and what are you looking for?"
                       className="mt-1.5 w-full resize-y rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-stone-800 outline-none transition-colors focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                     />
@@ -365,12 +398,20 @@ export default function Landing() {
       <footer className="border-t border-stone-200 bg-white">
         <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-3 px-5 py-8 text-sm text-stone-500 sm:flex-row">
           <span className="font-semibold text-emerald-700">
-            Barter<span className="text-amber-600">Fresno</span>
+            Fresno<span className="text-amber-600">Skillshare</span>
           </span>
           <span>Neighbors helping neighbors in Fresno, CA.</span>
-          <Link to="/login" className="transition-colors hover:text-stone-800">
-            Member sign in
-          </Link>
+          <span className="flex flex-wrap justify-center gap-5">
+            <Link to="/privacy" className="transition-colors hover:text-stone-800">
+              Privacy Policy
+            </Link>
+            <Link to="/terms" className="transition-colors hover:text-stone-800">
+              Terms
+            </Link>
+            <Link to="/login" className="transition-colors hover:text-stone-800">
+              Member sign in
+            </Link>
+          </span>
         </div>
       </footer>
     </div>

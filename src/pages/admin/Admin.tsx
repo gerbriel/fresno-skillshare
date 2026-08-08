@@ -9,6 +9,7 @@ import RequestsTab from './RequestsTab'
 import InvitesTab from './InvitesTab'
 import CategoriesTab from './CategoriesTab'
 import ListingsTab from './ListingsTab'
+import EventsTab from './EventsTab'
 import NewsletterTab from './NewsletterTab'
 import SiteTab from './SiteTab'
 
@@ -71,6 +72,7 @@ export default function Admin() {
         {activeTab === 'invites' && <InvitesTab />}
         {activeTab === 'categories' && <CategoriesTab />}
         {activeTab === 'listings' && <ListingsTab />}
+        {activeTab === 'events' && <EventsTab />}
         {activeTab === 'newsletter' && <NewsletterTab />}
         {activeTab === 'site' && <SiteTab />}
       </section>

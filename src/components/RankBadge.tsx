@@ -1,3 +1,4 @@
+import { Crown } from 'lucide-react'
 import { rankFor, tradeCount } from '../lib/ranks'
 
 interface RankBadgeProps {
@@ -19,7 +20,7 @@ export default function RankBadge({ completedTrades }: RankBadgeProps) {
           : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
       }`}
     >
-      {gold && <span aria-hidden>⚜</span>}
+      {gold && <Crown className="h-3 w-3 shrink-0" aria-hidden />}
       {rank.title}
     </span>
   )

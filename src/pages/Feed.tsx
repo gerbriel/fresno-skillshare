@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ListingCard from '../components/ListingCard'
+import { describeError } from '../lib/errors'
+import { FEED_PAGE_SIZE, LISTING_SELECT } from '../lib/queries'
+import { useDebouncedValue } from '../lib/useDebounce'
 import type { Category, ListingWithRelations } from '../lib/types'
-
-const LISTING_SELECT =
-  '*, owner:profiles!listings_owner_id_fkey(id, display_name, avatar_url), category:categories(*)'
 
 type TypeFilter = 'all' | 'offering' | 'seeking'
 type KindFilter = 'all' | 'service' | 'good'
@@ -51,20 +51,18 @@ export default function Feed() {
   const navigate = useNavigate()
 
   const [search, setSearch] = useState('')
-  const [query, setQuery] = useState('')
+  const query = useDebouncedValue(search.trim())
   const [type, setType] = useState<TypeFilter>('all')
   const [kind, setKind] = useState<KindFilter>('all')
   const [categoryId, setCategoryId] = useState('all')
 
   const [categories, setCategories] = useState<Category[]>([])
   const [listings, setListings] = useState<ListingWithRelations[]>([])
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setQuery(search.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [search])
 
   useEffect(() => {
     let cancelled = false
@@ -80,35 +78,49 @@ export default function Feed() {
     }
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const load = useCallback(
+    async (pageIndex: number) => {
+      if (pageIndex === 0) setLoading(true)
+      else setLoadingMore(true)
+      setError(null)
 
-    let request = supabase
-      .from('listings')
-      .select(LISTING_SELECT)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
+      let request = supabase
+        .from('listings')
+        .select(LISTING_SELECT)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .range(pageIndex * FEED_PAGE_SIZE, (pageIndex + 1) * FEED_PAGE_SIZE - 1)
 
-    if (type !== 'all') request = request.eq('type', type)
-    if (kind !== 'all') request = request.eq('kind', kind)
-    if (categoryId !== 'all') request = request.eq('category_id', categoryId)
+      if (type !== 'all') request = request.eq('type', type)
+      if (kind !== 'all') request = request.eq('kind', kind)
+      if (categoryId !== 'all') request = request.eq('category_id', categoryId)
 
-    const term = sanitize(query)
-    if (term) request = request.or(`title.ilike.%${term}%,description.ilike.%${term}%`)
+      const term = sanitize(query)
+      if (term) request = request.or(`title.ilike.%${term}%,description.ilike.%${term}%`)
 
-    const { data, error: fetchError } = await request
-    if (fetchError) {
-      setError(fetchError.message)
-      setListings([])
-    } else {
-      setListings((data ?? []) as unknown as ListingWithRelations[])
-    }
-    setLoading(false)
-  }, [query, type, kind, categoryId])
+      const { data, error: fetchError } = await request
+      if (fetchError) {
+        setError(describeError(fetchError, 'We could not load the feed.'))
+        if (pageIndex === 0) setListings([])
+      } else {
+        const rows = (data ?? []) as unknown as ListingWithRelations[]
+        setListings((prev) => {
+          if (pageIndex === 0) return rows
+          // New posts shift offsets between pages; drop rows already shown.
+          const seen = new Set(prev.map((listing) => listing.id))
+          return [...prev, ...rows.filter((row) => !seen.has(row.id))]
+        })
+        setHasMore(rows.length === FEED_PAGE_SIZE)
+        setPage(pageIndex)
+      }
+      setLoading(false)
+      setLoadingMore(false)
+    },
+    [query, type, kind, categoryId]
+  )
 
   useEffect(() => {
-    load()
+    load(0)
   }, [load])
 
   const hasFilters = query !== '' || type !== 'all' || kind !== 'all' || categoryId !== 'all'
@@ -165,7 +177,6 @@ export default function Feed() {
             <option value="all">All categories</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.emoji ? `${category.emoji} ` : ''}
                 {category.name}
               </option>
             ))}
@@ -177,7 +188,7 @@ export default function Feed() {
 
       {!loading && error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          We could not load the feed. {error}
+          {error}
         </div>
       )}
 
@@ -202,11 +213,25 @@ export default function Feed() {
       )}
 
       {!loading && !error && listings.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {listings.map((listing) => (
-            <ListingCard key={listing.id} listing={listing} onChanged={load} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {listings.map((listing) => (
+              <ListingCard key={listing.id} listing={listing} onChanged={() => load(0)} />
+            ))}
+          </div>
+          {hasMore && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={() => load(page + 1)}
+                disabled={loadingMore}
+                className="rounded-lg border border-stone-300 bg-white px-5 py-2 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loadingMore ? 'Loading...' : 'Load more'}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

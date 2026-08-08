@@ -3,10 +3,10 @@ import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ListingCard from '../components/ListingCard'
 import Avatar from '../components/Avatar'
+import { CategoryIcon } from '../components/CategoryIcon'
+import { describeError } from '../lib/errors'
+import { LISTING_SELECT } from '../lib/queries'
 import type { Category, ListingWithRelations, ProfileLite } from '../lib/types'
-
-const LISTING_SELECT =
-  '*, owner:profiles!listings_owner_id_fkey(id, display_name, avatar_url), category:categories(*)'
 
 type TypeFilter = 'all' | 'offering' | 'seeking'
 
@@ -39,7 +39,7 @@ export default function CategoryDetail() {
       .maybeSingle()
 
     if (categoryError) {
-      setError(categoryError.message)
+      setError(describeError(categoryError, 'We could not load this category.'))
       setLoading(false)
       return
     }
@@ -60,9 +60,10 @@ export default function CategoryDetail() {
       .eq('status', 'active')
       .eq('category_id', found.id)
       .order('created_at', { ascending: false })
+      .limit(100)
 
     if (listingError) {
-      setError(listingError.message)
+      setError(describeError(listingError, 'We could not load these listings.'))
       setListings([])
     } else {
       setListings((data ?? []) as unknown as ListingWithRelations[])
@@ -120,14 +121,17 @@ export default function CategoryDetail() {
         <Link to="/categories" className="text-sm font-medium text-stone-500 hover:text-emerald-700">
           Back to categories
         </Link>
-        <div className="mt-3 flex items-start gap-3">
-          <span className="text-4xl" aria-hidden>
-            {category?.emoji ?? '🔁'}
+        <div className="mt-3 flex items-start gap-4">
+          <span
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"
+            aria-hidden
+          >
+            <CategoryIcon name={category?.icon} className="h-6 w-6" />
           </span>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-stone-900">{category?.name}</h1>
             {category?.description && (
-              <p className="mt-1 text-sm text-stone-600">{category.description}</p>
+              <p className="mt-1 text-sm leading-relaxed text-stone-600">{category.description}</p>
             )}
           </div>
         </div>

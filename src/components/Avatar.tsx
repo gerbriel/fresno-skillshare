@@ -1,3 +1,5 @@
+import { safeHttpUrl } from '../lib/validate'
+
 interface AvatarProps {
   name: string
   url?: string | null
@@ -19,11 +21,15 @@ export default function Avatar({ name, url, size = 'md' }: AvatarProps) {
     .join('')
     .toUpperCase()
 
-  if (url) {
+  // Only render http(s) URLs; anything else falls back to initials.
+  const safeUrl = safeHttpUrl(url)
+  if (safeUrl) {
     return (
       <img
-        src={url}
+        src={safeUrl}
         alt={name}
+        loading="lazy"
+        referrerPolicy="no-referrer"
         className={`${sizes[size]} rounded-full object-cover ring-1 ring-stone-200`}
       />
     )

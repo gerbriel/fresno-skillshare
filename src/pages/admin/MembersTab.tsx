@@ -24,12 +24,14 @@ const STATUS_TONE: Record<MemberStatus, Tone> = {
   pending: 'amber',
   active: 'emerald',
   suspended: 'red',
+  deleted: 'stone',
 }
 
 const STATUS_LABEL: Record<MemberStatus, string> = {
   pending: 'Pending',
   active: 'Active',
   suspended: 'Suspended',
+  deleted: 'Deleted',
 }
 
 const SELF_HINT = 'You cannot change your own access.'
@@ -71,7 +73,7 @@ export default function MembersTab() {
         acc[member.status] += 1
         return acc
       },
-      { pending: 0, active: 0, suspended: 0 } as Record<MemberStatus, number>
+      { pending: 0, active: 0, suspended: 0, deleted: 0 } as Record<MemberStatus, number>
     )
   }, [members])
 
@@ -80,6 +82,7 @@ export default function MembersTab() {
     { id: 'pending', label: 'Pending', count: counts.pending },
     { id: 'active', label: 'Active', count: counts.active },
     { id: 'suspended', label: 'Suspended', count: counts.suspended },
+    { id: 'deleted', label: 'Deleted', count: counts.deleted },
   ]
 
   const visible = useMemo(
@@ -123,11 +126,41 @@ export default function MembersTab() {
     void patchMember(member.id, { role: nextRole })
   }
 
+  // Full GDPR erasure: removes their sign-in and personal data, keeps
+  // messages/reviews/trades anonymized as "Deleted member". Irreversible,
+  // so confirmation requires typing the member's name.
+  const deleteAccount = async (member: Profile) => {
+    const typed = window.prompt(
+      `Permanently delete ${member.display_name}'s account?\n\n` +
+        'Their sign-in, profile, and listings are erased. Messages, reviews, and trades they ' +
+        'shared with other members are kept as "Deleted member". This cannot be undone.\n\n' +
+        `Type ${member.display_name} to confirm.`
+    )
+    if (typed === null) return
+    if (typed.trim() !== member.display_name) {
+      setActionError('The name did not match, so nothing was deleted.')
+      return
+    }
+
+    setBusyId(member.id)
+    setActionError(null)
+    const { error: rpcError } = await supabase.rpc('admin_delete_account', {
+      p_user_id: member.id,
+    })
+    if (rpcError) {
+      setActionError(describeError(rpcError, 'We could not delete that account.'))
+      setBusyId(null)
+      return
+    }
+    setBusyId(null)
+    await load()
+  }
+
   return (
     <div className="space-y-5">
       <SectionHeader
         title="Members"
-        description="Approve new signups, suspend accounts, and hand out admin access."
+        description="Approve new signups, suspend or delete accounts, and hand out admin access. Deleting an account erases the person but keeps their messages, reviews, and trades anonymized."
         action={
           <button
             type="button"
@@ -192,6 +225,10 @@ export default function MembersTab() {
                     >
                       {SELF_HINT}
                     </span>
+                  ) : member.status === 'deleted' ? (
+                    <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-500">
+                      Account deleted
+                    </span>
                   ) : (
                     <>
                       {member.status === 'pending' && (
@@ -232,6 +269,16 @@ export default function MembersTab() {
                       >
                         {member.role === 'admin' ? 'Remove admin' : 'Make admin'}
                       </button>
+                      {member.role !== 'admin' && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void deleteAccount(member)}
+                          className={buttonClass('danger', 'sm')}
+                        >
+                          {busy ? 'Working...' : 'Delete account'}
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

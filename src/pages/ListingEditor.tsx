@@ -3,6 +3,8 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { describeError } from '../lib/errors'
+import { cleanOptional, cleanText, LIMITS } from '../lib/validate'
 import type { Category, Listing, ListingKind, ListingType } from '../lib/types'
 
 const fieldClass =
@@ -54,7 +56,7 @@ export default function ListingEditor() {
 
       if (cancelled) return
       if (categoryError) {
-        setError(categoryError.message)
+        setError(describeError(categoryError, 'We could not load the categories.'))
         setLoading(false)
         return
       }
@@ -73,7 +75,7 @@ export default function ListingEditor() {
 
       if (cancelled) return
       if (listingError) {
-        setError(listingError.message)
+        setError(describeError(listingError, 'We could not load this listing.'))
         setLoading(false)
         return
       }
@@ -109,7 +111,7 @@ export default function ListingEditor() {
     event.preventDefault()
     if (!profile) return
 
-    const trimmed = title.trim()
+    const trimmed = cleanText(title, LIMITS.listingTitle)
     if (!trimmed) {
       setError('Give your listing a title.')
       return
@@ -123,7 +125,7 @@ export default function ListingEditor() {
       type,
       kind,
       title: trimmed,
-      description: description.trim() || null,
+      description: cleanOptional(description, LIMITS.listingDescription),
     }
 
     const { error: saveError } = isEdit
@@ -135,7 +137,7 @@ export default function ListingEditor() {
 
     setSaving(false)
     if (saveError) {
-      setError(saveError.message)
+      setError(describeError(saveError, 'We could not save the listing.'))
       return
     }
     navigate(`/u/${profile.id}`)
@@ -150,7 +152,7 @@ export default function ListingEditor() {
     const { error: deleteError } = await supabase.from('listings').delete().eq('id', id)
     setSaving(false)
     if (deleteError) {
-      setError(deleteError.message)
+      setError(describeError(deleteError, 'We could not delete the listing.'))
       return
     }
     navigate(`/u/${profile.id}`)
@@ -230,6 +232,7 @@ export default function ListingEditor() {
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             rows={5}
+            maxLength={LIMITS.listingDescription}
             placeholder="Share the details: what is included, when you are available, what you would like in return."
             className={`mt-1 ${fieldClass}`}
           />
@@ -300,7 +303,6 @@ export default function ListingEditor() {
             <option value="">Pick a category</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.emoji ? `${category.emoji} ` : ''}
                 {category.name}
               </option>
             ))}
