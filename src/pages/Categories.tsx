@@ -107,7 +107,9 @@ export default function Categories() {
     setDescription('')
     setIcon('repeat')
     setFormOpen(false)
-    setFormNotice(`Added "${trimmedName}". It is live for everyone now.`)
+    setFormNotice(
+      `Added "${trimmedName}". An admin will review it before it appears for everyone.`
+    )
     await load()
   }
 
@@ -216,21 +218,26 @@ export default function Categories() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {categories.map((category) => {
             const entry = counts[category.id] ?? { offering: 0, seeking: 0 }
-            return (
-              <Link
-                key={category.id}
-                to={`/categories/${category.slug}`}
-                className="flex h-full flex-col rounded-2xl border border-stone-200 bg-white p-6 shadow-sm transition-all hover:border-stone-300 hover:shadow-md"
-              >
+            const isPending = category.approved === false
+
+            const content = (
+              <>
                 <span
                   className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"
                   aria-hidden
                 >
                   <CategoryIcon name={category.icon} className="h-6 w-6" />
                 </span>
-                <h2 className="mt-4 text-base font-semibold tracking-tight text-stone-900">
-                  {category.name}
-                </h2>
+                <div className="mt-4 flex items-start justify-between gap-2">
+                  <h2 className="text-base font-semibold tracking-tight text-stone-900">
+                    {category.name}
+                  </h2>
+                  {isPending && (
+                    <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                      Pending approval
+                    </span>
+                  )}
+                </div>
                 {category.description && (
                   <p className="mt-1.5 text-sm leading-relaxed text-stone-600">
                     {category.description}
@@ -241,6 +248,27 @@ export default function Categories() {
                   {' · '}
                   <span className="text-amber-700">{entry.seeking} seeking</span>
                 </p>
+              </>
+            )
+
+            if (isPending) {
+              return (
+                <div
+                  key={category.id}
+                  className="flex h-full cursor-default flex-col rounded-2xl border border-dashed border-stone-300 bg-white p-6 opacity-70 shadow-sm"
+                >
+                  {content}
+                </div>
+              )
+            }
+
+            return (
+              <Link
+                key={category.id}
+                to={`/categories/${category.slug}`}
+                className="flex h-full flex-col rounded-2xl border border-stone-200 bg-white p-6 shadow-sm transition-all hover:border-stone-300 hover:shadow-md"
+              >
+                {content}
               </Link>
             )
           })}

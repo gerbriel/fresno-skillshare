@@ -113,6 +113,34 @@ The landing page "Get in touch" form stores messages in the `contact_messages` t
 
 Input safety is layered: the client trims input, strips control characters, and caps lengths; the database enforces the same limits with CHECK constraints plus a per-IP rate limit (5 messages/hour); a honeypot field silently drops most bots; and everything renders as plain text, never HTML.
 
+## Trust & safety
+
+Several protections keep the co-op honest and enforce the security boundary in the database (RLS), not the client:
+
+- **Reviews require a real trade.** You can only review or vouch for a member you have a completed trade with (enforced by `has_completed_trade_between` in the reviews insert policy). This stops sockpuppet accounts farming reputation.
+- **Reputation counts distinct partners.** The leaderboard scores completed trades and badges by *distinct counterparty*, so looping trades with the same person (or a second account) counts once.
+- **Member categories need approval.** Members can propose categories, but they stay hidden from other members and the public until an admin approves them under Admin > Categories (pending queue at the top). Admin-created categories are auto-approved.
+- **Blocking.** In a conversation, a member can Block another member; once blocked, no messages flow in either direction (enforced on the messages/threads insert policies). Manage from the conversation header.
+- **Share a conversation with admins.** A participant can share a thread for review (`report_thread` RPC). Only then can admins read that specific thread, under Admin > Reports. Admins cannot read conversations that have not been shared.
+
+## Security configuration (must-do)
+
+These live in the Supabase dashboard, not the code, and the app's guarantees depend on them:
+
+1. **Keep "Confirm email" ON** (Authentication > Providers > Email). If it is off, someone who learns an outstanding *admin* invite address could register it and be granted admin instantly. Invites and roles are matched by email, so the email must be verified.
+2. **Enable Realtime authorization / RLS** so the message stream enforces the same row security as queries.
+3. **Deploy the Edge Functions**: `supabase functions deploy invite-member` and `supabase functions deploy submit-contact`.
+
+## Contact form captcha (Cloudflare Turnstile)
+
+The public contact form now posts through the `submit-contact` Edge Function (the anon table insert was removed, closing spoofable spam). To turn on the free captcha:
+
+1. Create a Turnstile widget at the Cloudflare dashboard (Turnstile). It gives a **site key** and a **secret key**.
+2. Set `VITE_TURNSTILE_SITE_KEY=<site key>` in `.env.local` and in your host's env vars (rebuild/redeploy).
+3. Set the secret on the function: `supabase secrets set TURNSTILE_SECRET_KEY=<secret key>` (or in the dashboard's Edge Function settings).
+
+If the keys are unset the form still works, protected by rate limiting only; setting them enables captcha verification. The CSP already allows `challenges.cloudflare.com`.
+
 ## Account deletion (GDPR erasure)
 
 `supabase/migrations/00004_account_deletion.sql` implements "erase the person, keep the shared history":

@@ -43,6 +43,14 @@ export interface Category {
   description: string | null
   icon: string | null
   created_by: string | null
+  approved: boolean
+  created_at: string
+}
+
+/** One member blocking another; no messages flow either direction. */
+export interface Block {
+  blocker_id: string
+  blocked_id: string
   created_at: string
 }
 
@@ -102,6 +110,8 @@ export interface MessageThread {
   last_message_from: string | null
   a_unread: boolean
   b_unread: boolean
+  reported_by: string | null
+  reported_at: string | null
   created_at: string
 }
 

@@ -12,6 +12,16 @@ import { cleanText, isValidEmail, LIMITS } from '../lib/validate'
 import { CategoryIcon } from '../components/CategoryIcon'
 import type { Category, CoopEvent, SiteSettings } from '../lib/types'
 
+declare global {
+  interface Window {
+    turnstile?: { getResponse: () => string | undefined; reset: () => void }
+  }
+}
+
+// Cloudflare Turnstile is optional: the widget and captcha are only
+// wired up once a site key is configured, so the form works before setup.
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined
+
 const SETTING_KEYS: string[] = ['hero_heading', 'hero_subheading', 'about', 'how_it_works']
 
 const FALLBACK: SiteSettings = {
@@ -152,6 +162,18 @@ export default function Landing() {
     void reload()
   }, [reload])
 
+  // Load the Turnstile script once, only when a site key is configured.
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return
+    const src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+    if (document.querySelector(`script[src="${src}"]`)) return
+    const script = document.createElement('script')
+    script.src = src
+    script.async = true
+    script.defer = true
+    document.head.appendChild(script)
+  }, [])
+
   useLive('landing-live', [{ table: 'events' }, { table: 'site_settings' }], reload)
 
   const scrollToContact = () => {
@@ -178,19 +200,30 @@ export default function Landing() {
       return
     }
 
+    // When a Turnstile site key is configured the visitor must complete
+    // the captcha; the token is read from the widget the script renders.
+    const token = TURNSTILE_SITE_KEY ? window.turnstile?.getResponse() : undefined
+    if (TURNSTILE_SITE_KEY && !token) {
+      setSubmitError('Please complete the captcha below and try again.')
+      return
+    }
+
     setSubmitState('sending')
     setSubmitError(null)
 
-    // Stored for the admin inbox (Admin > Contact). The inputs are
-    // cleaned here and the database enforces the same length/format
-    // constraints plus a per-IP rate limit.
-    const { error } = await supabase.from('contact_messages').insert({
-      name: trimmedName,
-      email: trimmedEmail,
-      message: trimmedMessage,
+    // Sent through the submit-contact Edge Function, which verifies the
+    // captcha (when configured) and inserts with the service role. The
+    // anon insert policy was removed to stop spoofable spam.
+    const { data, error } = await supabase.functions.invoke('submit-contact', {
+      body: {
+        name: trimmedName,
+        email: trimmedEmail,
+        message: trimmedMessage,
+        token,
+      },
     })
 
-    if (error) {
+    if (error || data?.status !== 'sent') {
       setSubmitState('idle')
       setSubmitError(
         describeError(error, 'Something went wrong sending your message. Please try again in a moment.')
@@ -202,6 +235,7 @@ export default function Landing() {
     setName('')
     setEmail('')
     setMessage('')
+    window.turnstile?.reset()
   }
 
   const showMemberCta = !authLoading && session !== null && isActive
@@ -546,6 +580,10 @@ export default function Landing() {
                     <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                       {submitError}
                     </p>
+                  )}
+
+                  {TURNSTILE_SITE_KEY && (
+                    <div className="cf-turnstile" data-sitekey={TURNSTILE_SITE_KEY} />
                   )}
 
                   <button

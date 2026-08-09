@@ -85,6 +85,11 @@ export default function Messages() {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
 
+  // Members I have blocked. Only my own direction is visible (RLS hides the rest).
+  const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set())
+  const [blockBusy, setBlockBusy] = useState(false)
+  const [reportBusy, setReportBusy] = useState(false)
+
   const [pickerOpen, setPickerOpen] = useState(false)
   const [startNonce, setStartNonce] = useState(0)
   const [memberQuery, setMemberQuery] = useState('')
@@ -121,6 +126,24 @@ export default function Messages() {
 
   // A conversation someone else starts with me shows up without a refresh.
   useLive('messages-threads', me ? [{ table: 'message_threads' }] : [], loadThreads)
+
+  // Who I have blocked, loaded once so the composer and header can react to it.
+  useEffect(() => {
+    if (!me) return
+    let cancelled = false
+    const loadBlocks = async () => {
+      const { data, error } = await supabase
+        .from('blocks')
+        .select('blocked_id')
+        .eq('blocker_id', me)
+      if (cancelled || error) return
+      setBlockedIds(new Set((data ?? []).map((row) => row.blocked_id as string)))
+    }
+    void loadBlocks()
+    return () => {
+      cancelled = true
+    }
+  }, [me])
 
   // The directory is fetched the first time the picker opens, then filtered
   // client-side so typing costs no queries.
@@ -217,6 +240,13 @@ export default function Messages() {
     () => threads.find((thread) => thread.id === threadId) ?? null,
     [threads, threadId]
   )
+
+  // The other member of a direct thread (never for a broadcast), plus whether I've blocked them.
+  const activeOther = useMemo(
+    () => (me && activeThread && !activeThread.is_broadcast ? otherPerson(activeThread, me) : null),
+    [me, activeThread]
+  )
+  const otherBlocked = activeOther ? blockedIds.has(activeOther.id) : false
 
   const matchedMembers = useMemo(() => {
     const term = memberQuery.trim().toLowerCase()
@@ -388,7 +418,16 @@ export default function Messages() {
           message.id === tempId ? { ...message, pending: false, failed: true } : message
         )
       )
-      setSendError(describeError(error, 'Your message was not sent.'))
+      // A block in either direction is enforced by RLS (code 42501). If they
+      // blocked me, show a friendly line rather than a raw permission error.
+      const blocked =
+        (error as { code?: string }).code === '42501' ||
+        /row-level security|policy/i.test((error as { message?: string }).message ?? '')
+      setSendError(
+        blocked
+          ? 'You can no longer message this member.'
+          : describeError(error, 'Your message was not sent.')
+      )
       return
     }
     const saved = data as Message
@@ -399,6 +438,77 @@ export default function Messages() {
         : [...withoutTemp, saved]
     })
     void loadThreads()
+  }
+
+  // Block or unblock the other member. Blocking stops messages in both
+  // directions; the confirm guards against an accidental block.
+  const toggleBlock = async () => {
+    if (!me || !activeOther || blockBusy) return
+    const otherId = activeOther.id
+    const alreadyBlocked = blockedIds.has(otherId)
+    if (
+      !alreadyBlocked &&
+      !window.confirm(
+        `Block ${activeOther.display_name}? You will not be able to message each other until you unblock them.`
+      )
+    ) {
+      return
+    }
+    setBlockBusy(true)
+    setSendError(null)
+    if (alreadyBlocked) {
+      const { error } = await supabase
+        .from('blocks')
+        .delete()
+        .eq('blocker_id', me)
+        .eq('blocked_id', otherId)
+      if (error) {
+        setSendError(describeError(error, 'We could not unblock this member.'))
+      } else {
+        setBlockedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(otherId)
+          return next
+        })
+      }
+    } else {
+      const { error } = await supabase.from('blocks').insert({ blocker_id: me, blocked_id: otherId })
+      if (error) {
+        setSendError(describeError(error, 'We could not block this member.'))
+      } else {
+        setBlockedIds((prev) => new Set(prev).add(otherId))
+      }
+    }
+    setBlockBusy(false)
+  }
+
+  // Share this conversation with admins for review, or undo that sharing.
+  const toggleReport = async () => {
+    if (!me || !activeThread || reportBusy) return
+    const threadRowId = activeThread.id
+    const share = !activeThread.reported_by
+    setReportBusy(true)
+    setSendError(null)
+    const { error } = await supabase.rpc('report_thread', {
+      p_thread_id: threadRowId,
+      p_report: share,
+    })
+    if (error) {
+      setSendError(describeError(error, 'We could not update sharing for this conversation.'))
+    } else {
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id === threadRowId
+            ? {
+                ...thread,
+                reported_by: share ? me : null,
+                reported_at: share ? new Date().toISOString() : null,
+              }
+            : thread
+        )
+      )
+    }
+    setReportBusy(false)
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -630,6 +740,40 @@ export default function Messages() {
                 )}
               </div>
 
+              {activeThread && !activeThread.is_broadcast && (
+                <div className="flex flex-wrap items-center gap-2 border-b border-stone-200 bg-stone-50 px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={() => void toggleBlock()}
+                    disabled={blockBusy}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                      otherBlocked
+                        ? 'border-stone-200 text-stone-600 hover:bg-white'
+                        : 'border-red-200 text-red-600 hover:bg-red-50'
+                    }`}
+                  >
+                    {otherBlocked ? 'Unblock' : 'Block'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleReport()}
+                    disabled={reportBusy}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                      activeThread.reported_by
+                        ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                        : 'border-stone-200 text-stone-600 hover:bg-white'
+                    }`}
+                  >
+                    {activeThread.reported_by
+                      ? 'Shared with admin — Undo'
+                      : 'Share with admin for review'}
+                  </button>
+                  <p className="w-full text-[11px] text-stone-400 sm:ml-auto sm:w-auto">
+                    Sharing lets an admin read this conversation to help with a problem.
+                  </p>
+                </div>
+              )}
+
               <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto bg-stone-50 px-4 py-4">
                 {messagesLoading ? (
                   <p className="text-sm text-stone-500">Loading messages...</p>
@@ -697,25 +841,31 @@ export default function Messages() {
 
               <div className="border-t border-stone-200 p-3">
                 {sendError && <p className="mb-2 text-xs text-red-600">{sendError}</p>}
-                <div className="flex items-end gap-2">
-                  <textarea
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onKeyDown={handleKeyDown}
-                    rows={2}
-                    maxLength={LIMITS.messageBody}
-                    placeholder="Write a message. Enter to send, Shift plus Enter for a new line."
-                    className="flex-1 resize-none rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void send()}
-                    disabled={sending || !draft.trim()}
-                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {sending ? 'Sending' : 'Send'}
-                  </button>
-                </div>
+                {otherBlocked ? (
+                  <p className="rounded-xl bg-stone-50 px-3 py-2 text-center text-xs text-stone-500">
+                    You blocked this member. Unblock to message them.
+                  </p>
+                ) : (
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={handleKeyDown}
+                      rows={2}
+                      maxLength={LIMITS.messageBody}
+                      placeholder="Write a message. Enter to send, Shift plus Enter for a new line."
+                      className="flex-1 resize-none rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void send()}
+                      disabled={sending || !draft.trim()}
+                      className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {sending ? 'Sending' : 'Send'}
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}

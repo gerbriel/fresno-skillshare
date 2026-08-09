@@ -5,7 +5,7 @@ import { LIMITS } from '../../lib/validate'
 import type { Category } from '../../lib/types'
 import { CategoryIcon } from '../../components/CategoryIcon'
 import { IconPicker } from '../../components/IconPicker'
-import { EmptyBlock, ErrorBlock, Feedback, LoadingBlock, SectionHeader } from './shared'
+import { EmptyBlock, ErrorBlock, Feedback, LoadingBlock, Pill, SectionHeader } from './shared'
 import {
   buttonClass,
   cardClass,
@@ -191,6 +191,137 @@ export default function CategoriesTab() {
     setBusyId(null)
   }
 
+  const approveCategory = async (category: Category) => {
+    setBusyId(category.id)
+    setRowError(null)
+
+    const { error: approveError } = await supabase
+      .from('categories')
+      .update({ approved: true })
+      .eq('id', category.id)
+
+    if (approveError) {
+      setRowError(describeError(approveError, 'We could not approve that category.'))
+      setBusyId(null)
+      return
+    }
+
+    setCategories((current) =>
+      current.map((item) => (item.id === category.id ? { ...item, approved: true } : item))
+    )
+    setBusyId(null)
+  }
+
+  const pending = categories.filter((category) => !category.approved)
+  const approved = categories.filter((category) => category.approved)
+
+  const renderRow = (category: Category) => {
+    const busy = busyId === category.id
+    const editing = editingId === category.id
+
+    if (editing) {
+      return (
+        <li
+          key={category.id}
+          className="space-y-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm"
+        >
+          <input
+            type="text"
+            value={draft.name}
+            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            maxLength={LIMITS.categoryName}
+            aria-label="Name"
+            className={inputClass}
+          />
+          <IconPicker value={draft.icon} onChange={(next) => setDraft({ ...draft, icon: next })} />
+          <textarea
+            value={draft.description}
+            onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+            maxLength={LIMITS.categoryDescription}
+            rows={2}
+            aria-label="Description"
+            placeholder="Description (optional)"
+            className={`resize-y ${inputClass}`}
+          />
+          <p className="text-xs text-stone-400">
+            Link preview:{' '}
+            <span className="font-mono text-stone-500">/categories/{draftSlug || '...'}</span>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void saveEdit(category)}
+              className={buttonClass('primary', 'sm')}
+            >
+              {busy ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setEditingId(null)}
+              className={buttonClass('secondary', 'sm')}
+            >
+              Cancel
+            </button>
+          </div>
+        </li>
+      )
+    }
+
+    return (
+      <li
+        key={category.id}
+        className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-stone-100">
+            <CategoryIcon name={category.icon} className="h-5 w-5 text-stone-600" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-semibold text-stone-900">{category.name}</p>
+              {category.approved && <Pill tone="stone">Approved</Pill>}
+            </div>
+            <p className="font-mono text-xs text-stone-400">/categories/{category.slug}</p>
+            {category.description && (
+              <p className="mt-1 text-sm text-stone-500">{category.description}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          {!category.approved && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void approveCategory(category)}
+              className={buttonClass('primary', 'sm')}
+            >
+              {busy ? 'Working...' : 'Approve'}
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => startEdit(category)}
+            className={buttonClass('secondary', 'sm')}
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void handleDelete(category)}
+            className={buttonClass('danger', 'sm')}
+          >
+            {busy ? 'Working...' : 'Delete'}
+          </button>
+        </div>
+      </li>
+    )
+  }
+
   return (
     <div className="space-y-5">
       <SectionHeader
@@ -262,104 +393,21 @@ export default function CategoriesTab() {
       ) : categories.length === 0 ? (
         <EmptyBlock>No categories yet. Add the first one above.</EmptyBlock>
       ) : (
-        <ul className="space-y-3">
-          {categories.map((category) => {
-            const busy = busyId === category.id
-            const editing = editingId === category.id
+        <div className="space-y-5">
+          {pending.length > 0 ? (
+            <section className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+              <h3 className="flex items-center gap-2 font-semibold text-stone-900">
+                Pending approval
+                <Pill tone="amber">{pending.length}</Pill>
+              </h3>
+              <ul className="space-y-3">{pending.map(renderRow)}</ul>
+            </section>
+          ) : (
+            <p className="text-xs text-stone-400">No categories awaiting approval.</p>
+          )}
 
-            if (editing) {
-              return (
-                <li
-                  key={category.id}
-                  className="space-y-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm"
-                >
-                  <input
-                    type="text"
-                    value={draft.name}
-                    onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                    maxLength={LIMITS.categoryName}
-                    aria-label="Name"
-                    className={inputClass}
-                  />
-                  <IconPicker
-                    value={draft.icon}
-                    onChange={(next) => setDraft({ ...draft, icon: next })}
-                  />
-                  <textarea
-                    value={draft.description}
-                    onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-                    maxLength={LIMITS.categoryDescription}
-                    rows={2}
-                    aria-label="Description"
-                    placeholder="Description (optional)"
-                    className={`resize-y ${inputClass}`}
-                  />
-                  <p className="text-xs text-stone-400">
-                    Link preview:{' '}
-                    <span className="font-mono text-stone-500">/categories/{draftSlug || '...'}</span>
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void saveEdit(category)}
-                      className={buttonClass('primary', 'sm')}
-                    >
-                      {busy ? 'Saving...' : 'Save'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => setEditingId(null)}
-                      className={buttonClass('secondary', 'sm')}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </li>
-              )
-            }
-
-            return (
-              <li
-                key={category.id}
-                className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-stone-100">
-                    <CategoryIcon name={category.icon} className="h-5 w-5 text-stone-600" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-stone-900">{category.name}</p>
-                    <p className="font-mono text-xs text-stone-400">/categories/{category.slug}</p>
-                    {category.description && (
-                      <p className="mt-1 text-sm text-stone-500">{category.description}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 sm:justify-end">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => startEdit(category)}
-                    className={buttonClass('secondary', 'sm')}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void handleDelete(category)}
-                    className={buttonClass('danger', 'sm')}
-                  >
-                    {busy ? 'Working...' : 'Delete'}
-                  </button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+          {approved.length > 0 && <ul className="space-y-3">{approved.map(renderRow)}</ul>}
+        </div>
       )}
     </div>
   )

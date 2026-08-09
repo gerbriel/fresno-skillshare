@@ -68,7 +68,13 @@ export default function ReviewForm({ revieweeId, existing, onSaved }: ReviewForm
     setSaving(false)
 
     if (saveError) {
-      setError(describeError(saveError, 'Could not save your review.'))
+      // The insert policy requires a completed trade between the pair.
+      const denied = saveError.code === '42501' || (saveError.message ?? '').includes('policy')
+      setError(
+        denied
+          ? 'You can review someone after you complete a trade with them.'
+          : describeError(saveError, 'Could not save your review.')
+      )
       return
     }
     onSaved()

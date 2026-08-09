@@ -47,6 +47,7 @@ export default function Profile() {
   const [listings, setListings] = useState<ListingWithRelations[]>([])
   const [reviews, setReviews] = useState<ReviewWithReviewer[]>([])
   const [myReview, setMyReview] = useState<Review | null>(null)
+  const [canReview, setCanReview] = useState(false)
 
   const [editing, setEditing] = useState(false)
   const [editState, setEditState] = useState<EditState>({
@@ -99,6 +100,17 @@ export default function Profile() {
     setReviews((reviewsResult.data as ReviewWithReviewer[] | null) ?? [])
     setStats((statsResult.data as LeaderboardRow | null) ?? null)
     setMyReview((mineResult.data as Review | null) ?? null)
+
+    // A review requires a completed trade between the two members.
+    if (meId && meId !== id) {
+      const { data: allowed } = await supabase.rpc('has_completed_trade_between', {
+        a: meId,
+        b: id,
+      })
+      setCanReview(allowed === true)
+    } else {
+      setCanReview(false)
+    }
   }, [id, meId])
 
   const load = useCallback(async () => {
@@ -601,8 +613,14 @@ export default function Profile() {
         </h2>
 
         <div className="space-y-4">
-          {!isOwn && meId && member.status !== 'deleted' && (
+          {!isOwn && meId && member.status !== 'deleted' && (canReview || myReview) && (
             <ReviewForm revieweeId={member.id} existing={myReview} onSaved={loadReviews} />
+          )}
+
+          {!isOwn && meId && member.status !== 'deleted' && !canReview && !myReview && (
+            <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-6 text-center text-sm text-stone-500">
+              You can leave a review once you and {member.display_name} complete a trade together.
+            </div>
           )}
 
           {reviews.length === 0 ? (
