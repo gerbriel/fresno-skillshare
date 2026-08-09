@@ -203,6 +203,18 @@ export interface SiteSettings {
   how_it_works: string[]
 }
 
+/** A member's claim on an open-board trade; many can coexist. */
+export interface TradeClaim {
+  id: string
+  trade_id: string
+  claimant_id: string
+  created_at: string
+}
+
+export interface TradeClaimWithProfile extends TradeClaim {
+  claimant: ProfileLite
+}
+
 /** A note sent from the landing page contact form (admin inbox). */
 export interface ContactMessage {
   id: string

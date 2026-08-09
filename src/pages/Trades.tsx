@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Medal } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -8,7 +8,7 @@ import { formatDate, timeAgo } from '../lib/format'
 import { cleanText, LIMITS } from '../lib/validate'
 import { useLive } from '../lib/useLive'
 import Avatar from '../components/Avatar'
-import type { ProfileLite, TradeStatus, TradeWithProfiles } from '../lib/types'
+import type { ProfileLite, TradeClaimWithProfile, TradeStatus, TradeWithProfiles } from '../lib/types'
 
 const TRADE_SELECT =
   '*, proposer:profiles!trades_proposer_id_fkey(id, display_name, avatar_url), partner:profiles!trades_partner_id_fkey(id, display_name, avatar_url)'
@@ -44,12 +44,13 @@ const smallButton =
   'rounded-lg border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-700 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50'
 
 export default function Trades() {
-  const { profile } = useAuth()
+  const { profile, isAdmin } = useAuth()
   const me = profile?.id ?? null
   const [searchParams] = useSearchParams()
   const withUserId = searchParams.get('with')
 
   const [trades, setTrades] = useState<TradeWithProfiles[]>([])
+  const [claims, setClaims] = useState<TradeClaimWithProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -83,6 +84,14 @@ export default function Trades() {
     }
 
     setTrades((data ?? []) as unknown as TradeWithProfiles[])
+
+    // RLS scopes this to my own claims plus claims on trades I posted.
+    const { data: claimRows } = await supabase
+      .from('trade_claims')
+      .select('*, claimant:profiles!trade_claims_claimant_id_fkey(id, display_name, avatar_url)')
+      .order('created_at', { ascending: true })
+    setClaims((claimRows ?? []) as unknown as TradeClaimWithProfile[])
+
     setLoadError(null)
     setLoading(false)
   }, [me])
@@ -95,7 +104,7 @@ export default function Trades() {
 
   // The open board is shared: a claim by someone else updates every
   // member's view immediately.
-  useLive('trades-live', me ? [{ table: 'trades' }] : [], loadTrades)
+  useLive('trades-live', me ? [{ table: 'trades' }, { table: 'trade_claims' }] : [], loadTrades)
 
   useEffect(() => {
     if (!me) return
@@ -181,6 +190,16 @@ export default function Trades() {
     await loadTrades()
   }
 
+  const claimsByTrade = useMemo(() => {
+    const map: Record<string, TradeClaimWithProfile[]> = {}
+    for (const claim of claims) {
+      const list = map[claim.trade_id]
+      if (list) list.push(claim)
+      else map[claim.trade_id] = [claim]
+    }
+    return map
+  }, [claims])
+
   const setTradeError = (tradeId: string, message: string | null) => {
     setTradeErrors((prev) => {
       const next = { ...prev }
@@ -231,7 +250,48 @@ export default function Trades() {
     }
     setTradeNotes((prev) => ({
       ...prev,
-      [trade.id]: `You claimed this trade. Do the work, then ${trade.proposer.display_name} confirms it is done.`,
+      [trade.id]: `You claimed this trade. It stays open until ${trade.proposer.display_name} picks a claimant - you will see it move to In progress if that is you.`,
+    }))
+    await loadTrades()
+  }
+
+  const withdrawClaim = async (trade: TradeWithProfiles) => {
+    if (!me) return
+    setBusyTradeId(trade.id)
+    setTradeError(trade.id, null)
+    const { error } = await supabase
+      .from('trade_claims')
+      .delete()
+      .eq('trade_id', trade.id)
+      .eq('claimant_id', me)
+    setBusyTradeId(null)
+    if (error) {
+      setTradeError(trade.id, describeError(error, 'Could not withdraw your claim.'))
+      return
+    }
+    setTradeNotes((prev) => {
+      const next = { ...prev }
+      delete next[trade.id]
+      return next
+    })
+    await loadTrades()
+  }
+
+  const chooseClaimant = async (trade: TradeWithProfiles, claimant: ProfileLite) => {
+    setBusyTradeId(trade.id)
+    setTradeError(trade.id, null)
+    const { error } = await supabase.rpc('select_trade_claimant', {
+      p_trade_id: trade.id,
+      p_claimant_id: claimant.id,
+    })
+    setBusyTradeId(null)
+    if (error) {
+      setTradeError(trade.id, describeError(error, 'Could not choose that claimant.'))
+      return
+    }
+    setTradeNotes((prev) => ({
+      ...prev,
+      [trade.id]: `${claimant.display_name} is now your trade partner. Mark the trade completed once the work is done.`,
     }))
     await loadTrades()
   }
@@ -245,12 +305,9 @@ export default function Trades() {
       setTradeError(trade.id, describeError(error, 'Could not confirm completion.'))
       return
     }
-    // Whoever did the work earns the badge: the claimer on an open trade,
-    // the proposer otherwise.
-    const earner = trade.was_open ? trade.partner?.display_name : trade.proposer.display_name
     setTradeNotes((prev) => ({
       ...prev,
-      [trade.id]: `Trade completed. ${earner ?? 'Your partner'} earned the ${trade.title} badge.`,
+      [trade.id]: `Trade completed. Both members earned the ${trade.title} badge.`,
     }))
     await loadTrades()
   }
@@ -267,8 +324,13 @@ export default function Trades() {
     const errorMessage = tradeErrors[trade.id]
     const successNote = tradeNotes[trade.id]
     const isOpen = trade.status === 'open'
-    // The member who asked for the work is the one who confirms it.
-    const canConfirm = trade.status === 'accepted' && (trade.was_open ? iAmProposer : !iAmProposer)
+    const tradeClaims = claimsByTrade[trade.id] ?? []
+    const myClaim = me ? tradeClaims.find((claim) => claim.claimant_id === me) : undefined
+    // Direct trades: either participant completes. Open-board trades:
+    // only the poster. Admins always can.
+    const canConfirm =
+      trade.status === 'accepted' &&
+      (isAdmin || (trade.was_open ? iAmProposer : iAmProposer || trade.partner_id === me))
 
     return (
       <article
@@ -321,6 +383,39 @@ export default function Trades() {
           </div>
         </div>
 
+        {isOpen && iAmProposer && tradeClaims.length > 0 && (
+          <div className="rounded-xl border border-violet-100 bg-violet-50 p-3">
+            <span className="text-xs font-semibold tracking-wide text-violet-800 uppercase">
+              {tradeClaims.length === 1 ? '1 neighbor wants this' : `${tradeClaims.length} neighbors want this`}
+            </span>
+            <ul className="mt-2 space-y-2">
+              {tradeClaims.map((claim) => (
+                <li key={claim.id} className="flex items-center gap-2">
+                  <Link
+                    to={`/u/${claim.claimant.id}`}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-sm text-stone-700 hover:text-emerald-700"
+                  >
+                    <Avatar
+                      name={claim.claimant.display_name}
+                      url={claim.claimant.avatar_url}
+                      size="sm"
+                    />
+                    <span className="truncate">{claim.claimant.display_name}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void chooseClaimant(trade, claim.claimant)}
+                    className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Choose as partner
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {errorMessage && <p className="text-xs text-red-600">{errorMessage}</p>}
         {successNote && (
           <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
@@ -357,7 +452,7 @@ export default function Trades() {
               </>
             )}
 
-            {!iAmProposer && isOpen && (
+            {!iAmProposer && isOpen && !myClaim && (
               <button
                 type="button"
                 disabled={busy}
@@ -366,6 +461,22 @@ export default function Trades() {
               >
                 {busy ? 'Claiming...' : 'Claim this trade'}
               </button>
+            )}
+
+            {!iAmProposer && isOpen && myClaim && (
+              <>
+                <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-800">
+                  You claimed this
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void withdrawClaim(trade)}
+                  className={smallButton}
+                >
+                  Withdraw claim
+                </button>
+              </>
             )}
 
             {iAmProposer && (trade.status === 'proposed' || isOpen) && (
