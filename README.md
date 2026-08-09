@@ -121,6 +121,29 @@ Client-side patterns that pair with it:
 - The public join form carries a honeypot field; bot submissions are accepted silently without writing anything.
 - Routes are code-split, and an error boundary keeps a render crash from blanking the app.
 
+### Deploying to Vercel
+
+The app is a static SPA, so there is nothing to configure in code: Vercel detects Vite, runs `npm run build`, and serves `dist`.
+
+1. **Import the repo** at [vercel.com/new](https://vercel.com/new). Accept the detected Vite preset.
+
+2. **Add the environment variables** under Settings > Environment Variables, for Production *and* Preview:
+
+   ```
+   VITE_SUPABASE_URL       https://<your-project-ref>.supabase.co
+   VITE_SUPABASE_ANON_KEY  <your anon public key>
+   ```
+
+   This step is not optional. `.env.local` is gitignored, so without these the build still succeeds but the app throws "Missing Supabase config" and renders a blank page. Vite inlines `VITE_*` values at build time, so changing one requires a redeploy, not just a restart. Shipping the anon key to the browser is intended - it is a public key and RLS is the real boundary.
+
+3. **Point auth at the deployed domain**, or Google sign-in will fail:
+   - Supabase > Authentication > URL Configuration: set Site URL to `https://<your-app>.vercel.app` and add `https://<your-app>.vercel.app/**` to Redirect URLs. To let preview deployments log in too, also add `https://<your-project>-*.vercel.app/**`.
+   - Google Cloud Console > Credentials > your OAuth client: add `https://<your-app>.vercel.app` to Authorized JavaScript origins. The Authorized redirect URI stays the Supabase callback and does not change.
+
+4. **Publish the Google consent screen** (OAuth consent screen > Publish App). While it is in Testing, only manually added test users can sign in, capped at 100, which works against the invite system. The app requests only the basic `email` and `profile` scopes, which Google does not require verification for.
+
+Not GitHub Pages: it is a project site served from a subpath (needing a Vite `base`, a router change, and a base-aware OAuth redirect), and it cannot serve custom HTTP headers at all, so every security header below would silently stop applying.
+
 Deploy notes:
 
 - `vercel.json` (Vercel) and `public/_headers` + `public/_redirects` (Netlify) ship strict security headers - CSP locked to your Supabase project, HSTS, `frame-ancestors 'none'` - plus the SPA fallback rewrite. CORS is not the boundary for a public anon key; RLS is, and the CSP keeps the app itself from talking to anything but Supabase.
