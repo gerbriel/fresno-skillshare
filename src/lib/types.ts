@@ -201,3 +201,13 @@ export interface SiteSettings {
   about: string
   how_it_works: string[]
 }
+
+/** A note sent from the landing page contact form (admin inbox). */
+export interface ContactMessage {
+  id: string
+  name: string
+  email: string
+  message: string
+  status: 'new' | 'read'
+  created_at: string
+}

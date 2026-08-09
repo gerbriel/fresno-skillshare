@@ -4,7 +4,7 @@ An invite-only community co-op where Fresno neighbors trade goods and services d
 
 ## Features
 
-- **Public landing page** with admin-editable content and a contact form that emails the admins
+- **Public landing page** with admin-editable content and a contact form with an admin inbox
 - **Invite-only membership**: sign up with an invited email for instant access, or wait for admin approval
 - **Listings**: members post what they are offering and what they are seeking, by category, as services or goods
 - **Duplicate to my profile**: see a listing similar to what you do and add it to your own profile in one click
@@ -90,7 +90,7 @@ One-time setup:
 
 - **Invited**: an admin adds an email under Admin > Invites. When that person signs up with the same email - password or Google - they are active immediately.
 - **Walk-in first**: creating an account is the front door. New signups land in 'pending'; an admin approves the account under Admin > Members, which emails the person a one-click sign-in link (see below).
-- **Questions**: the landing page contact form (see "Contact form" below) emails the admins directly; nothing is stored in the database. The old join-requests table is kept for historical data only.
+- **Questions**: the landing page contact form lands in the admin dashboard (see "Contact form" below). The old join-requests table is kept for historical data only.
 - **Order never matters**: invites are claimed at signup AND at sign-in (`supabase/migrations/00012_claim_invite_on_signin.sql`) - the pending page checks for a matching invite on load and on "Check again", so approving someone after they already signed up still lets them in.
 
 ## Approval and invitation emails
@@ -108,12 +108,9 @@ One-time setup:
 
 ## Contact form
 
-The landing page "Get in touch" form posts to a free form service that emails the admins - messages never touch the database. Configure it with `VITE_CONTACT_ENDPOINT` in `.env.local` (and in your host's environment variables):
+The landing page "Get in touch" form stores messages in the `contact_messages` table (migration `00015_contact_messages.sql`), and admins read, reply to (via a mailto link), and manage them under **Admin > Contact**. The Overview tab shows a "New messages" count.
 
-- **FormSubmit** (no account needed): activate your email once at [formsubmit.co](https://formsubmit.co) to get a random alias, then set `VITE_CONTACT_ENDPOINT=https://formsubmit.co/ajax/<your-alias>`. Using the alias keeps the admin email address out of the client bundle.
-- **Formspree**: create a form and set `VITE_CONTACT_ENDPOINT=https://formspree.io/f/<form-id>` (free tier: 50 submissions/month).
-
-Both services are already allowed by the Content-Security-Policy headers. If the variable is unset, the landing page shows the Instagram contact (@fresno.skillshare) instead of the form. The form keeps the honeypot field, so most bots never reach the service.
+Input safety is layered: the client trims input, strips control characters, and caps lengths; the database enforces the same limits with CHECK constraints plus a per-IP rate limit (5 messages/hour); a honeypot field silently drops most bots; and everything renders as plain text, never HTML.
 
 ## Account deletion (GDPR erasure)
 

@@ -3,13 +3,11 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, HeartHandshake, MapPin, Send } from 'lucide-react'
 
-// Free form service endpoint (FormSubmit, Formspree, ...) that emails
-// the admins. Contact messages never touch the app database.
-const CONTACT_ENDPOINT = (import.meta.env.VITE_CONTACT_ENDPOINT as string | undefined) ?? ''
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useLive } from '../lib/useLive'
 import { formatEventRange } from '../lib/format'
+import { describeError } from '../lib/errors'
 import { cleanText, isValidEmail, LIMITS } from '../lib/validate'
 import type { CoopEvent, SiteSettings } from '../lib/types'
 
@@ -128,8 +126,6 @@ export default function Landing() {
     contactRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  // Contact messages go straight to the admins through the form service;
-  // nothing is stored in the app's database.
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmedName = cleanText(name, LIMITS.joinName)
@@ -153,21 +149,20 @@ export default function Landing() {
     setSubmitState('sending')
     setSubmitError(null)
 
-    try {
-      const response = await fetch(CONTACT_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          name: trimmedName,
-          email: trimmedEmail,
-          message: trimmedMessage,
-          _subject: 'Fresno Skillshare contact form',
-        }),
-      })
-      if (!response.ok) throw new Error(`Form service responded ${response.status}`)
-    } catch {
+    // Stored for the admin inbox (Admin > Contact). The inputs are
+    // cleaned here and the database enforces the same length/format
+    // constraints plus a per-IP rate limit.
+    const { error } = await supabase.from('contact_messages').insert({
+      name: trimmedName,
+      email: trimmedEmail,
+      message: trimmedMessage,
+    })
+
+    if (error) {
       setSubmitState('idle')
-      setSubmitError('Something went wrong sending your message. Please try again in a moment.')
+      setSubmitError(
+        describeError(error, 'Something went wrong sending your message. Please try again in a moment.')
+      )
       return
     }
 
@@ -393,7 +388,7 @@ export default function Landing() {
                     Send another message
                   </button>
                 </div>
-              ) : CONTACT_ENDPOINT ? (
+              ) : (
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="absolute -left-[9999px] top-auto" aria-hidden="true">
                     <label htmlFor="contact-website">Leave this field empty</label>
@@ -475,21 +470,6 @@ export default function Landing() {
                     We only use your email to reply to you.
                   </p>
                 </form>
-              ) : (
-                <div className="flex h-full items-center rounded-2xl border border-stone-200 bg-stone-50 p-8 text-center text-sm leading-relaxed text-stone-600">
-                  <p className="w-full">
-                    The contact form is not set up yet. Message us at{' '}
-                    <a
-                      href="https://www.instagram.com/fresno.skillshare/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold text-emerald-700 underline underline-offset-2"
-                    >
-                      @fresno.skillshare
-                    </a>{' '}
-                    on Instagram and we will get back to you.
-                  </p>
-                </div>
               )}
             </div>
           </div>

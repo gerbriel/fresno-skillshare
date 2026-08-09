@@ -1,6 +1,7 @@
 export const ADMIN_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'members', label: 'Members' },
+  { id: 'contact', label: 'Contact' },
   { id: 'invites', label: 'Invites' },
   { id: 'categories', label: 'Categories' },
   { id: 'listings', label: 'Listings' },
