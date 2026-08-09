@@ -31,6 +31,7 @@ export interface Invite {
   email: string
   invited_by: string | null
   note: string | null
+  role: Role
   created_at: string
   used_at: string | null
 }

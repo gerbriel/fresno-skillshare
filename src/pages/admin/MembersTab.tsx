@@ -145,6 +145,34 @@ export default function MembersTab() {
     setBusyId(null)
   }
 
+  // Second, optional step after erasure: remove the tombstone row
+  // itself. Cascades take the erased account's messages, reviews,
+  // trades, and threads out of everyone's history.
+  const purgeTombstone = async (member: Profile) => {
+    const ok = window.confirm(
+      'Remove this deleted account permanently?\n\n' +
+        'The messages, reviews, and trades it shared with other members will disappear from ' +
+        'their history too. This cannot be undone.'
+    )
+    if (!ok) return
+
+    setBusyId(member.id)
+    setActionError(null)
+    setActionNotice(null)
+    const { error: deleteError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', member.id)
+      .eq('status', 'deleted')
+    if (deleteError) {
+      setActionError(describeError(deleteError, 'We could not remove that account.'))
+      setBusyId(null)
+      return
+    }
+    setMembers((current) => current.filter((row) => row.id !== member.id))
+    setBusyId(null)
+  }
+
   const changeStatus = (member: Profile, status: MemberStatus) => {
     if (status === 'suspended') {
       const ok = window.confirm(
@@ -271,9 +299,14 @@ export default function MembersTab() {
                       {SELF_HINT}
                     </span>
                   ) : member.status === 'deleted' ? (
-                    <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-500">
-                      Account deleted
-                    </span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void purgeTombstone(member)}
+                      className={buttonClass('danger', 'sm')}
+                    >
+                      {busy ? 'Removing...' : 'Remove permanently'}
+                    </button>
                   ) : (
                     <>
                       {member.status === 'pending' && (

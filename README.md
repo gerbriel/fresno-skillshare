@@ -88,7 +88,7 @@ One-time setup:
 
 ## How membership works
 
-- **Invited**: an admin adds an email under Admin > Invites. When that person signs up with the same email - password or Google - they are active immediately.
+- **Invited**: an admin adds an email under Admin > Invites, optionally with a role. When that person signs up with the same email - password or Google - they are active immediately, as a member or admin per the invite (`00017_invite_roles_and_purge.sql`).
 - **Walk-in first**: creating an account is the front door. New signups land in 'pending'; an admin approves the account under Admin > Members, which emails the person a one-click sign-in link (see below).
 - **Questions**: the landing page contact form lands in the admin dashboard (see "Contact form" below). The old join-requests table is kept for historical data only.
 - **Order never matters**: invites are claimed at signup AND at sign-in (`supabase/migrations/00012_claim_invite_on_signin.sql`) - the pending page checks for a matching invite on load and on "Check again", so approving someone after they already signed up still lets them in.
@@ -119,6 +119,7 @@ Input safety is layered: the client trims input, strips control characters, and 
 - **Members** delete their own account from their profile page (type `delete` to confirm). **Admins** can delete any non-admin account under Admin > Members (type the member's name to confirm); suspend/reactivate remains the reversible option.
 - **Erased**: the `auth.users` row (email, password hash, Google identity - deleting it also revokes every session, so the member is signed out of all devices), profile details (name, avatar, bio, location), all their listings, invites and join requests carrying their email, and rate-limit counters.
 - **Kept, anonymized**: messages, reviews, vouches, trades, and trade tasks also belong to the other member in the exchange, so those rows stay and attribution joins resolve to a `'Deleted member'` tombstone profile with `status = 'deleted'`. Tombstones drop off the leaderboard, cannot be messaged or traded with, and hold no personal data.
+- Tombstones can be **permanently removed** by an admin (Members > Remove permanently on a deleted row). This second step also cascades away the messages, reviews, trades, and threads attributed to the erased account - use it for test data, not routine deletions.
 - Guard rails: the only active admin cannot delete themself (make another admin first), and admins must remove another admin's role before deleting their account. Both entry points (`delete_my_account()`, `admin_delete_account(uuid)`) funnel into one `erase_account()` function that is not callable from the API.
 - Because the `profiles -> auth.users` foreign key is dropped by this migration, delete accounts through the app, not the Supabase dashboard (a dashboard delete would leave a non-anonymized orphan profile).
 

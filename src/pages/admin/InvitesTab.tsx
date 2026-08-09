@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { isValidEmail, LIMITS } from '../../lib/validate'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate } from '../../lib/format'
-import type { Invite } from '../../lib/types'
+import type { Invite, Role } from '../../lib/types'
 import { EmptyBlock, ErrorBlock, Feedback, LoadingBlock, Pill, SectionHeader } from './shared'
 import {
   buttonClass,
@@ -23,6 +23,7 @@ export default function InvitesTab() {
 
   const [email, setEmail] = useState('')
   const [note, setNote] = useState('')
+  const [role, setRole] = useState<Role>('member')
   const [creating, setCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
@@ -66,6 +67,15 @@ export default function InvitesTab() {
       return
     }
 
+    if (
+      role === 'admin' &&
+      !window.confirm(
+        `Invite ${trimmedEmail} as an ADMIN? They will get full admin access the moment they sign up.`
+      )
+    ) {
+      return
+    }
+
     setCreating(true)
     setFormError(null)
     setFormSuccess(null)
@@ -76,6 +86,7 @@ export default function InvitesTab() {
         email: trimmedEmail,
         invited_by: me?.id ?? null,
         note: trimmedNote.length > 0 ? trimmedNote : null,
+        role,
       })
       .select('*')
       .single()
@@ -93,6 +104,7 @@ export default function InvitesTab() {
     setInvites((current) => [data as Invite, ...current])
     setEmail('')
     setNote('')
+    setRole('member')
 
     // Send the invitation email through the invite-member Edge Function.
     // A failure is soft: the invite row exists, so signing up with this
@@ -152,7 +164,7 @@ export default function InvitesTab() {
       />
 
       <form onSubmit={handleCreate} className={`${cardClass} space-y-4`}>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_9rem]">
           <div>
             <label htmlFor="invite-email" className={labelClass}>
               Email
@@ -181,6 +193,20 @@ export default function InvitesTab() {
               placeholder="Met at the farmers market"
               className={`mt-1.5 ${inputClass}`}
             />
+          </div>
+          <div>
+            <label htmlFor="invite-role" className={labelClass}>
+              Access
+            </label>
+            <select
+              id="invite-role"
+              value={role}
+              onChange={(event) => setRole(event.target.value as Role)}
+              className={`mt-1.5 ${inputClass}`}
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
           </div>
         </div>
 
@@ -217,6 +243,7 @@ export default function InvitesTab() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                  {invite.role === 'admin' && <Pill tone="emerald">Admin invite</Pill>}
                   {used ? (
                     <Pill tone="stone">Used {formatDate(invite.used_at as string)}</Pill>
                   ) : (
