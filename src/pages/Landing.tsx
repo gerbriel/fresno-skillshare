@@ -57,6 +57,7 @@ export default function Landing() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
+  const [sentEmail, setSentEmail] = useState<string | null>(null)
   // Honeypot: humans never see or fill this field; bots that do are
   // quietly accepted without writing anything.
   const [website, setWebsite] = useState('')
@@ -162,6 +163,7 @@ export default function Landing() {
       return
     }
 
+    setSentEmail(trimmedEmail)
     setSubmitState('sent')
     setName('')
     setEmail('')
@@ -355,16 +357,70 @@ export default function Landing() {
 
             <div>
               {submitState === 'sent' ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                    <Sprout className="h-6 w-6" aria-hidden />
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                      <Sprout className="h-6 w-6" aria-hidden />
+                    </div>
+                    <h3 className="text-xl font-semibold tracking-tight text-emerald-800">
+                      Request received
+                    </h3>
                   </div>
-                  <h3 className="mt-4 text-xl font-semibold tracking-tight text-emerald-800">
-                    Request received
-                  </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-emerald-700">
-                    Thanks for reaching out. An admin will review your request and email you when
-                    there is news.
+                  <p className="mt-4 text-sm leading-relaxed text-emerald-800">
+                    Here is what happens next:
+                  </p>
+                  <ol className="mt-3 space-y-3 text-sm leading-relaxed text-emerald-800">
+                    <li className="flex gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">
+                        1
+                      </span>
+                      <span>
+                        An admin reads every request personally. Please give it{' '}
+                        <strong>24 to 48 hours</strong> — most are reviewed sooner.
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">
+                        2
+                      </span>
+                      <span>
+                        Watch{' '}
+                        {sentEmail ? (
+                          <strong className="break-all">{sentEmail}</strong>
+                        ) : (
+                          'your inbox'
+                        )}{' '}
+                        for the invitation — and peek at your spam folder just in case.
+                      </span>
+                    </li>
+                    <li className="flex gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">
+                        3
+                      </span>
+                      <span>
+                        Once you are approved, come back and{' '}
+                        <Link
+                          to="/login"
+                          className="font-semibold text-emerald-700 underline underline-offset-2"
+                        >
+                          sign in
+                        </Link>{' '}
+                        with that same email — Google or a password both work, and access is
+                        instant.
+                      </span>
+                    </li>
+                  </ol>
+                  <p className="mt-4 border-t border-emerald-200 pt-4 text-sm leading-relaxed text-emerald-700">
+                    Questions in the meantime? Message us at{' '}
+                    <a
+                      href="https://www.instagram.com/fresno.skillshare/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold underline underline-offset-2"
+                    >
+                      @fresno.skillshare
+                    </a>{' '}
+                    on Instagram.
                   </p>
                   <button
                     type="button"

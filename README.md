@@ -113,7 +113,7 @@ One-time setup:
 - Guard rails: the only active admin cannot delete themself (make another admin first), and admins must remove another admin's role before deleting their account. Both entry points (`delete_my_account()`, `admin_delete_account(uuid)`) funnel into one `erase_account()` function that is not callable from the API.
 - Because the `profiles -> auth.users` foreign key is dropped by this migration, delete accounts through the app, not the Supabase dashboard (a dashboard delete would leave a non-anonymized orphan profile).
 
-The Privacy Policy (`src/pages/Privacy.tsx`) and Terms (`src/pages/Terms.tsx`) describe exactly this behavior - if you change what `erase_account()` touches, update both documents. The contact email and "last updated" date live in `src/components/LegalPage.tsx`.
+The Privacy Policy (`src/pages/Privacy.tsx`) and Terms (`src/pages/Terms.tsx`) describe exactly this behavior - if you change what `erase_account()` touches, update both documents. The contact point (Instagram: @fresno.skillshare) and "last updated" date live in `src/components/LegalPage.tsx`.
 
 ## Production hardening
 

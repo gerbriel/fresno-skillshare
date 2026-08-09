@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import LegalPage, { ContactEmail, LegalList, LegalSection } from '../components/LegalPage'
+import LegalPage, { ContactPoint, LegalList, LegalSection } from '../components/LegalPage'
 
 /* GDPR-style privacy policy. Keep this in sync with what the app
    actually does: the data inventory mirrors the schema in
@@ -16,7 +16,7 @@ export default function Privacy() {
         <p>
           Fresno Skillshare is a community cooperative based in Fresno, California, and is the data
           controller for the personal information described in this policy. For anything related to
-          your data, contact us at <ContactEmail />.
+          your data, message <ContactPoint />.
         </p>
       </LegalSection>
 
@@ -183,7 +183,7 @@ export default function Privacy() {
           </li>
         </LegalList>
         <p>
-          To exercise any of these, email <ContactEmail />. We will respond within one month. If you
+          To exercise any of these, message <ContactPoint />. We will respond within one month. If you
           are in the EU or UK, you also have the right to complain to your local data protection
           authority. California residents have comparable rights under the CCPA, including the right
           to know, delete, and not be discriminated against for exercising them — the same email
@@ -216,7 +216,7 @@ export default function Privacy() {
 
       <LegalSection title="12. Contact">
         <p>
-          Questions about privacy or your data: <ContactEmail />. See also our{' '}
+          Questions about privacy or your data: message <ContactPoint />. See also our{' '}
           <Link to="/terms" className="font-medium text-emerald-700 underline underline-offset-2">
             Terms &amp; Conditions
           </Link>

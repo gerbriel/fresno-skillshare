@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import LegalPage, { ContactEmail, LegalList, LegalSection } from '../components/LegalPage'
+import LegalPage, { ContactPoint, LegalList, LegalSection } from '../components/LegalPage'
 
 /* Terms of membership. The account-deletion section must stay in
    sync with the Privacy Policy and with erase_account() in
@@ -162,7 +162,7 @@ export default function Terms() {
 
       <LegalSection title="13. Contact">
         <p>
-          Questions about these terms: <ContactEmail />.
+          Questions about these terms: message <ContactPoint />.
         </p>
       </LegalSection>
     </LegalPage>

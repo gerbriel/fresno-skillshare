@@ -6,8 +6,9 @@ import { Link } from 'react-router-dom'
    and src/pages/Terms.tsx; contact details live here so both
    documents stay in sync. */
 
-export const CONTACT_EMAIL = 'gabrielriosemail@gmail.com'
-export const LEGAL_UPDATED = 'August 8, 2026'
+export const INSTAGRAM_HANDLE = 'fresno.skillshare'
+export const INSTAGRAM_URL = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`
+export const LEGAL_UPDATED = 'August 9, 2026'
 
 export function LegalSection({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -22,13 +23,15 @@ export function LegalList({ children }: { children: ReactNode }) {
   return <ul className="list-disc space-y-1.5 pl-5">{children}</ul>
 }
 
-export function ContactEmail() {
+export function ContactPoint() {
   return (
     <a
-      href={`mailto:${CONTACT_EMAIL}`}
+      href={INSTAGRAM_URL}
+      target="_blank"
+      rel="noopener noreferrer"
       className="font-medium text-emerald-700 underline underline-offset-2"
     >
-      {CONTACT_EMAIL}
+      @{INSTAGRAM_HANDLE} on Instagram
     </a>
   )
 }
