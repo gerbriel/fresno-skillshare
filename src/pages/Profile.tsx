@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Medal } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -8,7 +8,8 @@ import { describeError } from '../lib/errors'
 import { formatDate } from '../lib/format'
 import { LISTING_SELECT, REVIEWS_PAGE_SIZE } from '../lib/queries'
 import { nextRankFor, rankFor, rankProgress, tradeCount } from '../lib/ranks'
-import { cleanOptional, cleanText, LIMITS, safeHttpUrl } from '../lib/validate'
+import { cleanOptional, cleanText, LIMITS } from '../lib/validate'
+import { AVATAR_ACCEPT, removeAvatar, uploadAvatar } from '../lib/avatar'
 import Avatar from '../components/Avatar'
 import RankBadge from '../components/RankBadge'
 import { Stars } from '../components/Stars'
@@ -30,7 +31,6 @@ interface EditState {
   display_name: string
   location: string
   bio: string
-  avatar_url: string
 }
 
 /** Member profile: reputation, service record, badges, listings, and reviews. */
@@ -53,10 +53,13 @@ export default function Profile() {
     display_name: '',
     location: '',
     bio: '',
-    avatar_url: '',
   })
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
 
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
@@ -151,7 +154,6 @@ export default function Profile() {
         display_name: memberRow.display_name,
         location: memberRow.location ?? '',
         bio: memberRow.bio ?? '',
-        avatar_url: memberRow.avatar_url ?? '',
       })
     }
     setEditing(false)
@@ -167,13 +169,6 @@ export default function Profile() {
     if (!member) return
     setSaveError(null)
 
-    const avatarInput = editState.avatar_url.trim()
-    const avatarUrl = avatarInput ? safeHttpUrl(avatarInput.slice(0, LIMITS.avatarUrl)) : null
-    if (avatarInput && !avatarUrl) {
-      setSaveError('The avatar URL must be a link starting with http:// or https://')
-      return
-    }
-
     setSaving(true)
     const { data, error: updateError } = await supabase
       .from('profiles')
@@ -181,7 +176,6 @@ export default function Profile() {
         display_name: cleanText(editState.display_name, LIMITS.displayName) || 'New member',
         location: cleanOptional(editState.location, LIMITS.location),
         bio: cleanOptional(editState.bio, LIMITS.bio),
-        avatar_url: avatarUrl,
       })
       .eq('id', member.id)
       .select('*')
@@ -194,6 +188,66 @@ export default function Profile() {
     }
     if (data) setMember(data as ProfileRow)
     setEditing(false)
+    await refreshProfile()
+  }
+
+  // Photo changes apply immediately (not on Save): the upload replaces
+  // avatars/<uid>/avatar in place, so deferring the profile update
+  // would leave the old URL pointing at the new image anyway.
+  const handlePhotoChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = '' // allow picking the same file again
+    if (!file || !member) return
+
+    setUploadingPhoto(true)
+    setPhotoError(null)
+
+    const { url, error: uploadError } = await uploadAvatar(member.id, file)
+    if (!url) {
+      setPhotoError(uploadError ?? 'We could not upload that photo.')
+      setUploadingPhoto(false)
+      return
+    }
+
+    const { data, error: updateError } = await supabase
+      .from('profiles')
+      .update({ avatar_url: url })
+      .eq('id', member.id)
+      .select('*')
+      .maybeSingle()
+    setUploadingPhoto(false)
+
+    if (updateError) {
+      setPhotoError(describeError(updateError, 'We could not save your new photo.'))
+      return
+    }
+    if (data) setMember(data as ProfileRow)
+    await refreshProfile()
+  }
+
+  const handlePhotoRemove = async () => {
+    if (!member) return
+    setUploadingPhoto(true)
+    setPhotoError(null)
+
+    const { data, error: updateError } = await supabase
+      .from('profiles')
+      .update({ avatar_url: null })
+      .eq('id', member.id)
+      .select('*')
+      .maybeSingle()
+
+    if (updateError) {
+      setPhotoError(describeError(updateError, 'We could not remove your photo.'))
+      setUploadingPhoto(false)
+      return
+    }
+
+    // Best effort: a Google-hosted avatar has no object here, and the
+    // profile row is already cleared either way.
+    await removeAvatar(member.id)
+    setUploadingPhoto(false)
+    if (data) setMember(data as ProfileRow)
     await refreshProfile()
   }
 
@@ -360,21 +414,45 @@ export default function Profile() {
               </div>
             </div>
             <div>
-              <label
-                htmlFor="edit-avatar"
-                className="mb-1 block text-xs font-medium text-stone-600"
-              >
-                Avatar URL
-              </label>
-              <input
-                id="edit-avatar"
-                type="url"
-                value={editState.avatar_url}
-                maxLength={LIMITS.avatarUrl}
-                onChange={(event) => setEditState({ ...editState, avatar_url: event.target.value })}
-                placeholder="https://"
-                className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              />
+              <span className="mb-1 block text-xs font-medium text-stone-600">Profile photo</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <Avatar name={member.display_name} url={member.avatar_url} size="md" />
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept={AVATAR_ACCEPT}
+                  className="hidden"
+                  aria-label="Upload profile photo"
+                  onChange={(event) => void handlePhotoChange(event)}
+                />
+                <button
+                  type="button"
+                  disabled={uploadingPhoto}
+                  onClick={() => photoInputRef.current?.click()}
+                  className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                >
+                  {uploadingPhoto ? 'Working...' : member.avatar_url ? 'Change photo' : 'Upload photo'}
+                </button>
+                {member.avatar_url && (
+                  <button
+                    type="button"
+                    disabled={uploadingPhoto}
+                    onClick={() => void handlePhotoRemove()}
+                    className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {photoError && (
+                <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {photoError}
+                </p>
+              )}
+              <p className="mt-1.5 text-xs text-stone-400">
+                JPEG, PNG, WebP, or GIF. Large photos are resized before upload. Changes apply
+                right away.
+              </p>
             </div>
             <div>
               <label htmlFor="edit-bio" className="mb-1 block text-xs font-medium text-stone-600">

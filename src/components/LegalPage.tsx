@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom'
 
 export const INSTAGRAM_HANDLE = 'fresno.skillshare'
 export const INSTAGRAM_URL = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`
-export const LEGAL_UPDATED = 'August 9, 2026'
+export const LEGAL_UPDATED = 'August 10, 2026'
 
 export function LegalSection({ title, children }: { title: string; children: ReactNode }) {
   return (

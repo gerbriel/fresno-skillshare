@@ -146,10 +146,14 @@ export default function Terms() {
 
       <LegalSection title="11. Changes to these terms">
         <p>
-          We may update these terms as the co-op evolves. If a change is significant, we will update
-          the date at the top and announce it to members through the in-app newsletter before it
-          takes effect. Continuing to use the service after a change means you accept the updated
-          terms.
+          <strong className="text-stone-800">
+            We may change these terms at any time, at our sole discretion, without notice to you.
+          </strong>{' '}
+          Changes take effect the moment the updated terms are posted, and the date at the top
+          reflects the latest version. We are not obligated to announce changes, though we may. It is
+          your responsibility to review these terms periodically. Continuing to use the service after
+          any change means you accept the updated terms; if you do not agree, stop using the service
+          and delete your account.
         </p>
       </LegalSection>
 

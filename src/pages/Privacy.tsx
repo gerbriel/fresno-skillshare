@@ -31,8 +31,10 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-stone-800">Profile.</strong> Your display name and, if you choose
-            to add them, an avatar image link, a short bio, and a location. All of these except your
-            display name are optional.
+            to add them, a profile photo you upload, a short bio, and a location. All of these
+            except your display name are optional. Uploaded photos are stored with our database
+            provider and served from a link that contains a long random identifier, so it is not
+            guessable, but anyone who has the link can view the photo.
           </li>
           <li>
             <strong className="text-stone-800">Community activity.</strong> The listings you post,
@@ -107,8 +109,8 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-stone-800">Service providers.</strong> We use Supabase to host
-            our database and authentication, Google if you choose Google sign-in, and a web hosting
-            provider to serve the site. They process data on our behalf and under their own
+            our database, authentication, and uploaded profile photos, Google if you choose Google
+            sign-in, and a web hosting provider to serve the site. They process data on our behalf and under their own
             contractual safeguards.
           </li>
         </LegalList>
@@ -135,7 +137,7 @@ export default function Privacy() {
         </p>
         <LegalList>
           <li>your email address, password, and Google sign-in link,</li>
-          <li>your display name, avatar, bio, and location,</li>
+          <li>your display name, profile photo (including the uploaded file), bio, and location,</li>
           <li>all of your listings,</li>
           <li>any invites or join requests tied to your email address, and</li>
           <li>anti-abuse counters tied to your account.</li>
@@ -209,8 +211,13 @@ export default function Privacy() {
 
       <LegalSection title="11. Changes to this policy">
         <p>
-          If we change this policy in a meaningful way, we will update the date at the top and
-          announce it to members through the in-app newsletter before the change takes effect.
+          <strong className="text-stone-800">
+            We may change this policy at any time, at our sole discretion, without notice to you.
+          </strong>{' '}
+          Changes take effect the moment the updated policy is posted, and the date at the top
+          reflects the latest version. We are not obligated to announce changes, though we may. It is
+          your responsibility to review this policy periodically, and your continued use of the
+          service after any change means you accept it.
         </p>
       </LegalSection>
 

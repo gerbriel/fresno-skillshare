@@ -20,6 +20,7 @@ An invite-only community co-op where Fresno neighbors trade goods and services d
 - **Member moderation**: admins can approve, suspend, reactivate, or permanently delete accounts
 - **GDPR account deletion**: members can delete their own account; personal data and listings are erased while messages, reviews, and trades shared with other members are kept anonymized as "Deleted member"
 - **Legal pages**: public Privacy Policy (`/privacy`) and Terms & Conditions (`/terms`), linked from the landing page, sign-in, and member footer
+- **Profile photo uploads**: members upload a photo from their device (resized client-side, stored in the Supabase `avatars` bucket, one object per member); admins can pull an inappropriate photo
 
 ## Security model
 
@@ -117,7 +118,7 @@ Input safety is layered: the client trims input, strips control characters, and 
 `supabase/migrations/00004_account_deletion.sql` implements "erase the person, keep the shared history":
 
 - **Members** delete their own account from their profile page (type `delete` to confirm). **Admins** can delete any non-admin account under Admin > Members (type the member's name to confirm); suspend/reactivate remains the reversible option.
-- **Erased**: the `auth.users` row (email, password hash, Google identity - deleting it also revokes every session, so the member is signed out of all devices), profile details (name, avatar, bio, location), all their listings, invites and join requests carrying their email, and rate-limit counters.
+- **Erased**: the `auth.users` row (email, password hash, Google identity - deleting it also revokes every session, so the member is signed out of all devices), profile details (name, avatar including the uploaded photo file, bio, location), all their listings, invites and join requests carrying their email, and rate-limit counters.
 - **Kept, anonymized**: messages, reviews, vouches, trades, and trade tasks also belong to the other member in the exchange, so those rows stay and attribution joins resolve to a `'Deleted member'` tombstone profile with `status = 'deleted'`. Tombstones drop off the leaderboard, cannot be messaged or traded with, and hold no personal data.
 - Tombstones can be **permanently removed** by an admin (Members > Remove permanently on a deleted row). This second step also cascades away the messages, reviews, trades, and threads attributed to the erased account - use it for test data, not routine deletions.
 - Guard rails: the only active admin cannot delete themself (make another admin first), and admins must remove another admin's role before deleting their account. Both entry points (`delete_my_account()`, `admin_delete_account(uuid)`) funnel into one `erase_account()` function that is not callable from the API.
