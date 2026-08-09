@@ -9,7 +9,8 @@ import { useLive } from '../lib/useLive'
 import { formatEventRange } from '../lib/format'
 import { describeError } from '../lib/errors'
 import { cleanText, isValidEmail, LIMITS } from '../lib/validate'
-import type { CoopEvent, SiteSettings } from '../lib/types'
+import { CategoryIcon } from '../components/CategoryIcon'
+import type { Category, CoopEvent, SiteSettings } from '../lib/types'
 
 const SETTING_KEYS: string[] = ['hero_heading', 'hero_subheading', 'about', 'how_it_works']
 
@@ -55,6 +56,11 @@ export default function Landing() {
   const [contentError, setContentError] = useState<string | null>(null)
 
   const [events, setEvents] = useState<CoopEvent[]>([])
+
+  const [categories, setCategories] = useState<Category[]>([])
+  const [categoryCounts, setCategoryCounts] = useState<
+    Record<string, { offering: number; seeking: number }>
+  >({})
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -112,9 +118,35 @@ export default function Landing() {
     setEvents((data as CoopEvent[] | null) ?? [])
   }, [])
 
+  // Public aggregate: category names plus offering/seeking counts.
+  // Failures are dropped silently, same as events.
+  const loadCategories = useCallback(async () => {
+    const [categoryResult, countResult] = await Promise.all([
+      supabase.from('categories').select('*').order('name'),
+      supabase.rpc('category_counts'),
+    ])
+    if (categoryResult.error || countResult.error) {
+      setCategories([])
+      return
+    }
+    const tally: Record<string, { offering: number; seeking: number }> = {}
+    for (const row of (countResult.data ?? []) as {
+      category_id: string
+      listing_type: string
+      n: number
+    }[]) {
+      const entry = tally[row.category_id] ?? { offering: 0, seeking: 0 }
+      if (row.listing_type === 'offering') entry.offering += row.n
+      else entry.seeking += row.n
+      tally[row.category_id] = entry
+    }
+    setCategories((categoryResult.data ?? []) as Category[])
+    setCategoryCounts(tally)
+  }, [])
+
   const reload = useCallback(async () => {
-    await Promise.all([loadContent(), loadEvents()])
-  }, [loadContent, loadEvents])
+    await Promise.all([loadContent(), loadEvents(), loadCategories()])
+  }, [loadContent, loadEvents, loadCategories])
 
   useEffect(() => {
     void reload()
@@ -301,6 +333,64 @@ export default function Landing() {
             </ol>
           )}
         </section>
+
+        {/* Categories */}
+        {categories.length > 0 && (
+          <section className="mx-auto max-w-5xl px-5 py-10">
+            <h2 className="text-3xl font-bold tracking-tight text-stone-900">
+              What neighbors trade
+            </h2>
+            <p className="mt-3 max-w-2xl text-stone-600">
+              Every trade fits somewhere. Here is what members are offering and looking for right
+              now.
+            </p>
+            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {categories.map((category) => {
+                const entry = categoryCounts[category.id] ?? { offering: 0, seeking: 0 }
+                const body = (
+                  <>
+                    <span
+                      className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"
+                      aria-hidden
+                    >
+                      <CategoryIcon name={category.icon} className="h-6 w-6" />
+                    </span>
+                    <h3 className="mt-4 text-base font-semibold tracking-tight text-stone-900">
+                      {category.name}
+                    </h3>
+                    {category.description && (
+                      <p className="mt-1.5 text-sm leading-relaxed text-stone-600">
+                        {category.description}
+                      </p>
+                    )}
+                    <p className="mt-5 text-xs font-medium text-stone-500">
+                      <span className="text-emerald-700">{entry.offering} offerings</span>
+                      {' \u00b7 '}
+                      <span className="text-amber-700">{entry.seeking} seeking</span>
+                    </p>
+                  </>
+                )
+                // Cards only link into the member area for signed-in members.
+                return showMemberCta ? (
+                  <Link
+                    key={category.id}
+                    to={`/categories/${category.slug}`}
+                    className="flex h-full flex-col rounded-2xl border border-stone-200 bg-white p-6 shadow-sm transition-all hover:border-stone-300 hover:shadow-md"
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div
+                    key={category.id}
+                    className="flex h-full flex-col rounded-2xl border border-stone-200 bg-white p-6 shadow-sm"
+                  >
+                    {body}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Upcoming events */}
         {events.length > 0 && (
