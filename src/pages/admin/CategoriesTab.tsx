@@ -3,7 +3,8 @@ import type { FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
 import { LIMITS } from '../../lib/validate'
 import type { Category } from '../../lib/types'
-import { CATEGORY_ICONS, CategoryIcon } from '../../components/CategoryIcon'
+import { CategoryIcon } from '../../components/CategoryIcon'
+import { IconPicker } from '../../components/IconPicker'
 import { EmptyBlock, ErrorBlock, Feedback, LoadingBlock, SectionHeader } from './shared'
 import {
   buttonClass,
@@ -21,41 +22,6 @@ interface EditDraft {
   icon: string
   name: string
   description: string
-}
-
-interface IconPickerProps {
-  value: string
-  onChange: (icon: string) => void
-}
-
-function IconPicker({ value, onChange }: IconPickerProps) {
-  return (
-    <div>
-      <span className={labelClass}>Icon</span>
-      <div role="group" aria-label="Icon" className="mt-1.5 grid grid-cols-8 gap-1.5">
-        {Object.keys(CATEGORY_ICONS).map((key) => {
-          const selected = key === value
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onChange(key)}
-              aria-label={key}
-              aria-pressed={selected}
-              title={key}
-              className={`flex items-center justify-center rounded-lg border p-2 transition-colors ${
-                selected
-                  ? 'border-emerald-600 bg-emerald-600 text-white'
-                  : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-100'
-              }`}
-            >
-              <CategoryIcon name={key} className="h-4 w-4" />
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
 }
 
 export default function CategoriesTab() {
