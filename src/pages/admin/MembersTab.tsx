@@ -44,6 +44,7 @@ export default function MembersTab() {
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionNotice, setActionNotice] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -105,12 +106,55 @@ export default function MembersTab() {
     setBusyId(null)
   }
 
+  // Approving a pending account goes through an RPC that returns the
+  // member's email, so we can send them a sign-in link right away.
+  const approveMember = async (member: Profile) => {
+    setBusyId(member.id)
+    setActionError(null)
+    setActionNotice(null)
+
+    const { data: memberEmail, error: rpcError } = await supabase.rpc('approve_member', {
+      p_user_id: member.id,
+    })
+    if (rpcError) {
+      setActionError(describeError(rpcError, 'We could not approve that member.'))
+      setBusyId(null)
+      return
+    }
+
+    setMembers((current) =>
+      current.map((row) => (row.id === member.id ? { ...row, status: 'active' as MemberStatus } : row))
+    )
+
+    const email = typeof memberEmail === 'string' && memberEmail ? memberEmail : null
+    if (email) {
+      // The magic-link email doubles as the "you're approved" notice:
+      // one click signs them straight in.
+      const { error: mailError } = await supabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/feed` },
+      })
+      setActionNotice(
+        mailError
+          ? `Approved. The notification email could not be sent - let them know ${email} can sign in now.`
+          : `Approved. A sign-in email is on its way to ${email}.`
+      )
+    } else {
+      setActionNotice('Approved. They can sign in now.')
+    }
+    setBusyId(null)
+  }
+
   const changeStatus = (member: Profile, status: MemberStatus) => {
     if (status === 'suspended') {
       const ok = window.confirm(
         `Suspend ${member.display_name}? They will lose access to the co-op until you reactivate them.`
       )
       if (!ok) return
+    }
+    if (status === 'active' && member.status === 'pending') {
+      void approveMember(member)
+      return
     }
     void patchMember(member.id, { status })
   }
@@ -175,6 +219,7 @@ export default function MembersTab() {
 
       <FilterPills options={filterOptions} value={filter} onChange={setFilter} />
 
+      {actionNotice && <Feedback tone="success" message={actionNotice} />}
       {actionError && <Feedback tone="error" message={actionError} />}
       {error && <ErrorBlock message={error} onRetry={() => void load()} />}
 

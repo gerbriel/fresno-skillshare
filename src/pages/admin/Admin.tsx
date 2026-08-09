@@ -5,7 +5,6 @@ import { ADMIN_TABS, isAdminTabId } from './tabs'
 import type { AdminTabId } from './tabs'
 import OverviewTab from './OverviewTab'
 import MembersTab from './MembersTab'
-import RequestsTab from './RequestsTab'
 import InvitesTab from './InvitesTab'
 import CategoriesTab from './CategoriesTab'
 import ListingsTab from './ListingsTab'
@@ -68,7 +67,6 @@ export default function Admin() {
       <section>
         {activeTab === 'overview' && <OverviewTab onJump={goToTab} />}
         {activeTab === 'members' && <MembersTab />}
-        {activeTab === 'requests' && <RequestsTab />}
         {activeTab === 'invites' && <InvitesTab />}
         {activeTab === 'categories' && <CategoriesTab />}
         {activeTab === 'listings' && <ListingsTab />}

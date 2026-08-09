@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarDays, HeartHandshake, MapPin, Sprout } from 'lucide-react'
+import { CalendarDays, HeartHandshake, MapPin, Send } from 'lucide-react'
+
+// Free form service endpoint (FormSubmit, Formspree, ...) that emails
+// the admins. Contact messages never touch the app database.
+const CONTACT_ENDPOINT = (import.meta.env.VITE_CONTACT_ENDPOINT as string | undefined) ?? ''
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useLive } from '../lib/useLive'
 import { formatEventRange } from '../lib/format'
-import { cleanOptional, cleanText, isValidEmail, LIMITS } from '../lib/validate'
+import { cleanText, isValidEmail, LIMITS } from '../lib/validate'
 import type { CoopEvent, SiteSettings } from '../lib/types'
 
 const SETTING_KEYS: string[] = ['hero_heading', 'hero_subheading', 'about', 'how_it_works']
@@ -18,7 +22,7 @@ const FALLBACK: SiteSettings = {
   about:
     'We are a Fresno community cooperative. Members list what they can offer and what they are looking for, then trade directly with each other. Reputation is built through reviews, vouches, and completed trades.',
   how_it_works: [
-    'Get invited by a member or request to join.',
+    'Create an account and an admin will approve you, usually within a day or two.',
     'List the goods or services you offer and what you are seeking.',
     'Browse the feed, match with a neighbor, and propose a trade.',
     'Complete the trade, confirm it together, and earn badges.',
@@ -57,14 +61,13 @@ export default function Landing() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
-  const [sentEmail, setSentEmail] = useState<string | null>(null)
   // Honeypot: humans never see or fill this field; bots that do are
   // quietly accepted without writing anything.
   const [website, setWebsite] = useState('')
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  const joinRef = useRef<HTMLDivElement | null>(null)
+  const contactRef = useRef<HTMLDivElement | null>(null)
 
   const loadContent = useCallback(async () => {
     setContentLoading(true)
@@ -121,22 +124,25 @@ export default function Landing() {
 
   useLive('landing-live', [{ table: 'events' }, { table: 'site_settings' }], reload)
 
-  const scrollToJoin = () => {
-    joinRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const scrollToContact = () => {
+    contactRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  // Contact messages go straight to the admins through the form service;
+  // nothing is stored in the app's database.
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmedName = cleanText(name, LIMITS.joinName)
     const trimmedEmail = email.trim()
+    const trimmedMessage = cleanText(message, LIMITS.joinMessage)
 
     if (website) {
       setSubmitState('sent')
       return
     }
 
-    if (!trimmedName || !trimmedEmail) {
-      setSubmitError('Please add your name and email so we know who to reach.')
+    if (!trimmedName || !trimmedEmail || !trimmedMessage) {
+      setSubmitError('Please fill in your name, email, and message.')
       return
     }
     if (!isValidEmail(trimmedEmail)) {
@@ -147,23 +153,24 @@ export default function Landing() {
     setSubmitState('sending')
     setSubmitError(null)
 
-    const { error } = await supabase.from('join_requests').insert({
-      name: trimmedName,
-      email: trimmedEmail,
-      message: cleanOptional(message, LIMITS.joinMessage),
-    })
-
-    if (error) {
+    try {
+      const response = await fetch(CONTACT_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          name: trimmedName,
+          email: trimmedEmail,
+          message: trimmedMessage,
+          _subject: 'Fresno Skillshare contact form',
+        }),
+      })
+      if (!response.ok) throw new Error(`Form service responded ${response.status}`)
+    } catch {
       setSubmitState('idle')
-      setSubmitError(
-        error.message.toLowerCase().includes('duplicate')
-          ? 'It looks like we already have a request from this email. Hang tight, an admin will review it.'
-          : 'Something went wrong sending your request. Please try again in a moment.'
-      )
+      setSubmitError('Something went wrong sending your message. Please try again in a moment.')
       return
     }
 
-    setSentEmail(trimmedEmail)
     setSubmitState('sent')
     setName('')
     setEmail('')
@@ -230,19 +237,19 @@ export default function Landing() {
               </Link>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={scrollToJoin}
-                  className="rounded-full bg-emerald-600 px-7 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
-                >
-                  Request to join
-                </button>
                 <Link
                   to="/login"
+                  className="rounded-full bg-emerald-600 px-7 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
+                >
+                  Create an account
+                </Link>
+                <button
+                  type="button"
+                  onClick={scrollToContact}
                   className="rounded-full border border-stone-300 bg-white px-7 py-3.5 text-sm font-semibold text-stone-700 transition-colors hover:border-stone-400 hover:bg-stone-100"
                 >
-                  Member sign in
-                </Link>
+                  Contact us
+                </button>
               </>
             )}
           </div>
@@ -337,105 +344,61 @@ export default function Landing() {
           </section>
         )}
 
-        {/* Join request */}
-        <section ref={joinRef} id="join" className="mx-auto max-w-5xl scroll-mt-24 px-5 py-16">
+        {/* Contact */}
+        <section ref={contactRef} id="contact" className="mx-auto max-w-5xl scroll-mt-24 px-5 py-16">
           <div className="grid gap-10 rounded-2xl border border-emerald-200 bg-white p-8 shadow-sm sm:p-12 md:grid-cols-2">
             <div>
-              <h2 className="text-3xl font-bold tracking-tight text-stone-900">Request to join</h2>
+              <h2 className="text-3xl font-bold tracking-tight text-stone-900">Get in touch</h2>
               <p className="mt-4 leading-relaxed text-stone-600">
-                Membership is invite-only, and we read every request. Tell us a little about what you
-                can offer and what you are hoping to find. An admin will follow up by email.
+                Questions about the co-op, an event, or your membership? Send us a note and an
+                admin will reply by email. You can also message{' '}
+                <a
+                  href="https://www.instagram.com/fresno.skillshare/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-emerald-700 underline underline-offset-2"
+                >
+                  @fresno.skillshare
+                </a>{' '}
+                on Instagram.
               </p>
               <p className="mt-4 text-sm text-stone-500">
-                Already invited? You can create your account from the{' '}
+                Ready to join? Just{' '}
                 <Link to="/login" className="font-medium text-emerald-700 underline underline-offset-2">
-                  sign in page
+                  create an account
                 </Link>
-                .
+                . An admin reviews every new signup, usually within 24 to 48 hours, and you get an
+                email the moment you are approved.
               </p>
             </div>
 
             <div>
               {submitState === 'sent' ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                      <Sprout className="h-6 w-6" aria-hidden />
-                    </div>
-                    <h3 className="text-xl font-semibold tracking-tight text-emerald-800">
-                      Request received
-                    </h3>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                    <Send className="h-6 w-6" aria-hidden />
                   </div>
-                  <p className="mt-4 text-sm leading-relaxed text-emerald-800">
-                    Here is what happens next:
-                  </p>
-                  <ol className="mt-3 space-y-3 text-sm leading-relaxed text-emerald-800">
-                    <li className="flex gap-3">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">
-                        1
-                      </span>
-                      <span>
-                        An admin reads every request personally. Please give it{' '}
-                        <strong>24 to 48 hours</strong> — most are reviewed sooner.
-                      </span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">
-                        2
-                      </span>
-                      <span>
-                        Watch{' '}
-                        {sentEmail ? (
-                          <strong className="break-all">{sentEmail}</strong>
-                        ) : (
-                          'your inbox'
-                        )}{' '}
-                        for the invitation — and peek at your spam folder just in case.
-                      </span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">
-                        3
-                      </span>
-                      <span>
-                        Once you are approved, come back and{' '}
-                        <Link
-                          to="/login"
-                          className="font-semibold text-emerald-700 underline underline-offset-2"
-                        >
-                          sign in
-                        </Link>{' '}
-                        with that same email — Google or a password both work, and access is
-                        instant.
-                      </span>
-                    </li>
-                  </ol>
-                  <p className="mt-4 border-t border-emerald-200 pt-4 text-sm leading-relaxed text-emerald-700">
-                    Questions in the meantime? Message us at{' '}
-                    <a
-                      href="https://www.instagram.com/fresno.skillshare/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold underline underline-offset-2"
-                    >
-                      @fresno.skillshare
-                    </a>{' '}
-                    on Instagram.
+                  <h3 className="mt-4 text-xl font-semibold tracking-tight text-emerald-800">
+                    Message sent
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-emerald-700">
+                    Thanks for reaching out. An admin will reply by email, usually within a day or
+                    two.
                   </p>
                   <button
                     type="button"
                     onClick={() => setSubmitState('idle')}
                     className="mt-6 rounded-full border border-emerald-300 bg-white px-5 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
                   >
-                    Send another request
+                    Send another message
                   </button>
                 </div>
-              ) : (
+              ) : CONTACT_ENDPOINT ? (
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="absolute -left-[9999px] top-auto" aria-hidden="true">
-                    <label htmlFor="join-website">Leave this field empty</label>
+                    <label htmlFor="contact-website">Leave this field empty</label>
                     <input
-                      id="join-website"
+                      id="contact-website"
                       type="text"
                       value={website}
                       onChange={(event) => setWebsite(event.target.value)}
@@ -445,11 +408,11 @@ export default function Landing() {
                   </div>
 
                   <div>
-                    <label htmlFor="join-name" className="block text-sm font-medium text-stone-700">
+                    <label htmlFor="contact-name" className="block text-sm font-medium text-stone-700">
                       Name
                     </label>
                     <input
-                      id="join-name"
+                      id="contact-name"
                       type="text"
                       value={name}
                       onChange={(event) => setName(event.target.value)}
@@ -462,11 +425,11 @@ export default function Landing() {
                   </div>
 
                   <div>
-                    <label htmlFor="join-email" className="block text-sm font-medium text-stone-700">
+                    <label htmlFor="contact-email" className="block text-sm font-medium text-stone-700">
                       Email
                     </label>
                     <input
-                      id="join-email"
+                      id="contact-email"
                       type="email"
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
@@ -479,16 +442,17 @@ export default function Landing() {
                   </div>
 
                   <div>
-                    <label htmlFor="join-message" className="block text-sm font-medium text-stone-700">
-                      Message <span className="font-normal text-stone-400">(optional)</span>
+                    <label htmlFor="contact-message" className="block text-sm font-medium text-stone-700">
+                      Message
                     </label>
                     <textarea
-                      id="join-message"
+                      id="contact-message"
                       value={message}
                       onChange={(event) => setMessage(event.target.value)}
+                      required
                       rows={4}
                       maxLength={LIMITS.joinMessage}
-                      placeholder="What can you offer, and what are you looking for?"
+                      placeholder="How can we help?"
                       className="mt-1.5 w-full resize-y rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-stone-800 outline-none transition-colors focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
                     />
                   </div>
@@ -504,13 +468,28 @@ export default function Landing() {
                     disabled={submitState === 'sending'}
                     className="w-full rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
                   >
-                    {submitState === 'sending' ? 'Sending...' : 'Send request'}
+                    {submitState === 'sending' ? 'Sending...' : 'Send message'}
                   </button>
 
                   <p className="text-center text-xs text-stone-400">
-                    We only use your email to talk about your membership.
+                    We only use your email to reply to you.
                   </p>
                 </form>
+              ) : (
+                <div className="flex h-full items-center rounded-2xl border border-stone-200 bg-stone-50 p-8 text-center text-sm leading-relaxed text-stone-600">
+                  <p className="w-full">
+                    The contact form is not set up yet. Message us at{' '}
+                    <a
+                      href="https://www.instagram.com/fresno.skillshare/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-emerald-700 underline underline-offset-2"
+                    >
+                      @fresno.skillshare
+                    </a>{' '}
+                    on Instagram and we will get back to you.
+                  </p>
+                </div>
               )}
             </div>
           </div>

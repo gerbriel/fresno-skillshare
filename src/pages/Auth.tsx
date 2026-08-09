@@ -317,11 +317,11 @@ export default function Auth() {
                     account waits in a pending state until an admin approves it.
                   </p>
                   <p className="mt-2">
-                    You can also{' '}
+                    Questions? Use the{' '}
                     <Link to="/" className="font-medium text-emerald-700 underline underline-offset-2">
-                      request to join from the home page
-                    </Link>
-                    .
+                      contact form on the home page
+                    </Link>{' '}
+                    and an admin will get back to you.
                   </p>
                 </div>
               </form>

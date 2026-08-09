@@ -7,7 +7,6 @@ import { buttonClass } from './helpers'
 interface Stats {
   activeMembers: number
   pendingMembers: number
-  pendingRequests: number
   activeListings: number
   completedTrades: number
   totalReviews: number
@@ -16,7 +15,6 @@ interface Stats {
 const EMPTY_STATS: Stats = {
   activeMembers: 0,
   pendingMembers: 0,
-  pendingRequests: 0,
   activeListings: 0,
   completedTrades: 0,
   totalReviews: 0,
@@ -38,13 +36,6 @@ const CARDS: StatCard[] = [
     hint: 'Signed up, waiting on you',
     jumpTo: 'members',
     jumpLabel: 'Review members',
-  },
-  {
-    key: 'pendingRequests',
-    label: 'Pending join requests',
-    hint: 'Sent from the landing page',
-    jumpTo: 'requests',
-    jumpLabel: 'Review requests',
   },
   { key: 'activeListings', label: 'Active listings', hint: 'Visible in the feed' },
   { key: 'completedTrades', label: 'Completed trades', hint: 'Confirmed by both sides' },
@@ -69,7 +60,6 @@ export default function OverviewTab({ onJump }: { onJump: (tab: AdminTabId) => v
     const results = await Promise.all([
       countOf('profiles', 'status', 'active'),
       countOf('profiles', 'status', 'pending'),
-      countOf('join_requests', 'status', 'pending'),
       countOf('listings', 'status', 'active'),
       countOf('trades', 'status', 'completed'),
       countOf('reviews'),
@@ -84,10 +74,9 @@ export default function OverviewTab({ onJump }: { onJump: (tab: AdminTabId) => v
     setStats({
       activeMembers: results[0].count,
       pendingMembers: results[1].count,
-      pendingRequests: results[2].count,
-      activeListings: results[3].count,
-      completedTrades: results[4].count,
-      totalReviews: results[5].count,
+      activeListings: results[2].count,
+      completedTrades: results[3].count,
+      totalReviews: results[4].count,
     })
     setLoading(false)
   }, [])

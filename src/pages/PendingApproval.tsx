@@ -71,7 +71,7 @@ export default function PendingApproval() {
         </div>
         <h1 className="mt-4 text-2xl font-bold tracking-tight text-stone-900">You are signed out</h1>
         <p className="mt-3 leading-relaxed text-stone-600">
-          Sign in to check on your membership, or head back to the home page to request an invite.
+          Sign in to check on your membership, or reach out from the home page contact form.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
@@ -139,12 +139,12 @@ export default function PendingApproval() {
             </p>
           )}
           <p className="mt-4 text-sm leading-relaxed text-stone-500">
-            In a hurry? Ask the member who invited you to give an admin a nudge, or submit a join
-            request on the{' '}
+            In a hurry? Ask the member who invited you to give an admin a nudge, or reach out
+            through the{' '}
             <Link to="/" className="font-medium text-emerald-700 underline underline-offset-2">
-              home page
-            </Link>{' '}
-            so we have your details on file.
+              contact form on the home page
+            </Link>
+            .
           </p>
         </>
       )}

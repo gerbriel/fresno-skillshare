@@ -4,7 +4,7 @@ An invite-only community co-op where Fresno neighbors trade goods and services d
 
 ## Features
 
-- **Public landing page** with admin-editable content and a request-to-join form
+- **Public landing page** with admin-editable content and a contact form that emails the admins
 - **Invite-only membership**: sign up with an invited email for instant access, or wait for admin approval
 - **Listings**: members post what they are offering and what they are seeking, by category, as services or goods
 - **Duplicate to my profile**: see a listing similar to what you do and add it to your own profile in one click
@@ -89,19 +89,31 @@ One-time setup:
 ## How membership works
 
 - **Invited**: an admin adds an email under Admin > Invites. When that person signs up with the same email - password or Google - they are active immediately.
-- **Request to join**: a visitor submits the form on the landing page. An admin approves it under Admin > Requests, which emails them an invitation (see below) and pre-clears their email so signup grants instant access. If they had already signed up and were waiting, approval activates their existing account on the spot (`supabase/migrations/00011_approval_flow.sql`).
-- **Walk-in signup**: anyone can create an account (password or Google), but it sits in pending until an admin approves it under Admin > Members.
+- **Walk-in first**: creating an account is the front door. New signups land in 'pending'; an admin approves the account under Admin > Members, which emails the person a one-click sign-in link (see below).
+- **Questions**: the landing page contact form (see "Contact form" below) emails the admins directly; nothing is stored in the database. The old join-requests table is kept for historical data only.
 - **Order never matters**: invites are claimed at signup AND at sign-in (`supabase/migrations/00012_claim_invite_on_signin.sql`) - the pending page checks for a matching invite on load and on "Check again", so approving someone after they already signed up still lets them in.
 
-## Invitation emails
+## Approval and invitation emails
 
-Approving a join request calls the `invite-member` Edge Function (`supabase/functions/invite-member/index.ts`), which sends Supabase's "You have been invited" email with a sign-in link. The link lands on `/welcome`, where the new member can set a password (optional - Google works too) and continue to the feed. Approved requests in Admin > Requests have a "Resend email" button, and email failures never block the approval itself - the person can always just sign up with their approved email.
+Two emails keep members in the loop, and failures never block the underlying action:
+
+- **Approval** (Admin > Members > Approve): the `approve_member` RPC activates the pending account and the app sends them a **magic-link email** - one click signs them straight in. Customize Authentication > Email Templates > "Magic Link" so it reads as an approval notice (e.g. "You're in! Click to sign in to Fresno Skillshare").
+- **Invitation** (Admin > Invites > Create invite): the `invite-member` Edge Function (`supabase/functions/invite-member/index.ts`) sends Supabase's "You have been invited" email. The link lands on `/welcome`, where the new member can set a password (optional - Google works too) and continue to the feed.
 
 One-time setup:
 
 1. **Deploy the function**: `supabase functions deploy invite-member --project-ref <your-project-ref>` (requires `supabase login` with the account that owns the project), or paste the file into the dashboard's Edge Functions editor. No secrets to configure - the function uses the automatically injected service role key and verifies the caller is an active admin before sending anything.
 2. **Configure email sending**: Supabase's built-in sender is limited to a few emails per hour and is meant for testing. For production, set up custom SMTP under Project Settings > Authentication (Resend's free tier works well).
 3. **Customize the template** (optional): Authentication > Email Templates > "Invite user". The redirect to `/welcome` is already covered by the `/**` entries in the Auth URL allow-list.
+
+## Contact form
+
+The landing page "Get in touch" form posts to a free form service that emails the admins - messages never touch the database. Configure it with `VITE_CONTACT_ENDPOINT` in `.env.local` (and in your host's environment variables):
+
+- **FormSubmit** (no account needed): activate your email once at [formsubmit.co](https://formsubmit.co) to get a random alias, then set `VITE_CONTACT_ENDPOINT=https://formsubmit.co/ajax/<your-alias>`. Using the alias keeps the admin email address out of the client bundle.
+- **Formspree**: create a form and set `VITE_CONTACT_ENDPOINT=https://formspree.io/f/<form-id>` (free tier: 50 submissions/month).
+
+Both services are already allowed by the Content-Security-Policy headers. If the variable is unset, the landing page shows the Instagram contact (@fresno.skillshare) instead of the form. The form keeps the honeypot field, so most bots never reach the service.
 
 ## Account deletion (GDPR erasure)
 
