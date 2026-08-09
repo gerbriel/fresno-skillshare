@@ -17,7 +17,25 @@
 --     denormalized rollups and an in-app broadcast RPC.
 -- =============================================================
 
+-- ---------- profiles ----------
+
+create table public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null default 'New member',
+  avatar_url text,
+  bio text,
+  location text default 'Fresno, CA',
+  role text not null default 'member' check (role in ('admin', 'member')),
+  status text not null default 'pending' check (status in ('pending', 'active', 'suspended')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
 -- ---------- helper functions ----------
+-- These come after profiles on purpose: a `language sql` body is parsed
+-- and validated when the function is created, so the table it reads has
+-- to exist first.
 
 create or replace function public.is_admin()
 returns boolean
@@ -39,21 +57,6 @@ as $$
   );
 $$;
 
--- ---------- profiles ----------
-
-create table public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  display_name text not null default 'New member',
-  avatar_url text,
-  bio text,
-  location text default 'Fresno, CA',
-  role text not null default 'member' check (role in ('admin', 'member')),
-  status text not null default 'pending' check (status in ('pending', 'active', 'suspended')),
-  created_at timestamptz not null default now()
-);
-
-alter table public.profiles enable row level security;
-
 create policy "Members can view active profiles"
   on public.profiles for select
   using (
@@ -73,7 +76,12 @@ returns trigger
 language plpgsql security definer set search_path = public
 as $$
 begin
-  if not public.is_admin() then
+  -- Only clamp when a signed-in member is the one writing. A null auth.uid()
+  -- means the caller is the SQL editor, a service_role job, or a database
+  -- trigger, and those need to be able to set role/status (bootstrapping the
+  -- first admin, for one). Anonymous API callers cannot reach this trigger:
+  -- the update policy requires id = auth.uid(), which never matches for them.
+  if auth.uid() is not null and not public.is_admin() then
     new.role := old.role;
     new.status := old.status;
   end if;

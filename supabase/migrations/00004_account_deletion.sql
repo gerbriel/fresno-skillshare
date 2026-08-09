@@ -69,7 +69,12 @@ begin
   if current_setting('fresno_skillshare.account_erasure', true) = 'on' then
     return new;
   end if;
-  if not public.is_admin() then
+  -- Only clamp when a signed-in member is the one writing. A null auth.uid()
+  -- means the caller is the SQL editor, a service_role job, or a database
+  -- trigger, and those need to set role/status (bootstrapping the first
+  -- admin, for one). Anonymous API callers cannot reach this trigger: the
+  -- update policy requires id = auth.uid(), which never matches for them.
+  if auth.uid() is not null and not public.is_admin() then
     new.role := old.role;
     new.status := old.status;
   end if;
