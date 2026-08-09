@@ -127,33 +127,30 @@ export interface Newsletter {
   sent_at: string | null
 }
 
-export type TradeStatus = 'proposed' | 'accepted' | 'completed' | 'declined'
+export type TradeStatus = 'open' | 'proposed' | 'accepted' | 'completed' | 'declined'
 
 export interface Trade {
   id: string
   proposer_id: string
-  partner_id: string
+  /** Null only while status is 'open' (posted to the board, unclaimed). */
+  partner_id: string | null
   listing_id: string | null
   title: string
-  notes: string | null
+  /** The two halves of the barter. */
+  offering: string
+  needing: string
   status: TradeStatus
+  /** True if this came off the open board, which flips who confirms it. */
+  was_open: boolean
   created_at: string
   completed_at: string | null
 }
 
 export interface TradeWithProfiles extends Trade {
   proposer: ProfileLite
-  partner: ProfileLite
+  partner: ProfileLite | null
 }
 
-export interface TradeTask {
-  id: string
-  trade_id: string
-  title: string
-  done: boolean
-  completed_at: string | null
-  created_at: string
-}
 
 export interface BadgeRow {
   id: string
@@ -177,6 +174,8 @@ export interface LeaderboardRow {
   score: number
 }
 
+export type EventStatus = 'pending' | 'approved' | 'rejected'
+
 export interface CoopEvent {
   id: string
   title: string
@@ -184,8 +183,16 @@ export interface CoopEvent {
   notes: string | null
   starts_at: string
   ends_at: string | null
+  /** Members propose events as 'pending'; only 'approved' is public. */
+  status: EventStatus
+  proposed_by: string | null
+  review_note: string | null
   created_at: string
   updated_at: string
+}
+
+export interface EventWithProposer extends CoopEvent {
+  proposer: ProfileLite | null
 }
 
 export interface SiteSettings {

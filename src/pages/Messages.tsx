@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Search, SquarePen, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { describeError } from '../lib/errors'
 import { timeAgo } from '../lib/format'
 import { MESSAGES_PAGE_SIZE } from '../lib/queries'
 import { cleanText, LIMITS } from '../lib/validate'
+import { useLive } from '../lib/useLive'
 import Avatar from '../components/Avatar'
-import type { Message, ProfileLite, ThreadWithProfiles } from '../lib/types'
+import type { Message, ProfileLite, Role, ThreadWithProfiles } from '../lib/types'
 
 const THREAD_SELECT =
   '*, a:profiles!message_threads_a_id_fkey(id, display_name, avatar_url), b:profiles!message_threads_b_id_fkey(id, display_name, avatar_url)'
@@ -17,6 +19,11 @@ const THREAD_SELECT =
 interface LocalMessage extends Message {
   pending?: boolean
   failed?: boolean
+}
+
+/** ProfileLite plus the role, so the picker can group admins separately. */
+interface MemberRow extends ProfileLite {
+  role: Role
 }
 
 function otherPerson(thread: ThreadWithProfiles, me: string): ProfileLite {
@@ -30,6 +37,29 @@ function threadUnread(thread: ThreadWithProfiles, me: string): boolean {
 /** A newsletter blast lands in my inbox as a broadcast thread started by the admin. */
 function isNewsletterToMe(thread: ThreadWithProfiles, me: string): boolean {
   return thread.is_broadcast && thread.a_id !== me
+}
+
+function MemberPickerRow(props: { member: MemberRow; onSelect: (userId: string) => void }) {
+  const { member, onSelect } = props
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onSelect(member.id)}
+        className="flex w-full items-center gap-2 rounded-xl border border-stone-200 bg-white px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
+      >
+        <Avatar name={member.display_name} url={member.avatar_url} size="sm" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-stone-700">
+          {member.display_name}
+        </span>
+        {member.role === 'admin' && (
+          <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+            Admin
+          </span>
+        )}
+      </button>
+    </li>
+  )
 }
 
 export default function Messages() {
@@ -54,6 +84,14 @@ export default function Messages() {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [startNonce, setStartNonce] = useState(0)
+  const [memberQuery, setMemberQuery] = useState('')
+  const [members, setMembers] = useState<MemberRow[]>([])
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [membersError, setMembersError] = useState<string | null>(null)
+  const membersLoadedRef = useRef(false)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // Prepending history must not yank the view back to the bottom.
@@ -81,9 +119,48 @@ export default function Messages() {
     void loadThreads()
   }, [me, loadThreads])
 
-  // "?to={userId}" means open the direct thread with this member, creating it if needed.
+  // A conversation someone else starts with me shows up without a refresh.
+  useLive('messages-threads', me ? [{ table: 'message_threads' }] : [], loadThreads)
+
+  // The directory is fetched the first time the picker opens, then filtered
+  // client-side so typing costs no queries.
   useEffect(() => {
-    if (!me || !toUserId) return
+    if (!me || !pickerOpen || membersLoadedRef.current) return
+    let cancelled = false
+    setMembersLoading(true)
+    setMembersError(null)
+
+    const loadMembers = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, display_name, avatar_url, role')
+        .eq('status', 'active')
+        .neq('id', me)
+        .order('display_name')
+      if (cancelled) return
+      if (error) {
+        setMembersError(describeError(error, 'We could not load the member directory.'))
+      } else {
+        membersLoadedRef.current = true
+        setMembers((data ?? []) as MemberRow[])
+      }
+      setMembersLoading(false)
+    }
+    void loadMembers()
+
+    return () => {
+      cancelled = true
+    }
+  }, [me, pickerOpen])
+
+  // "?to={userId}" means open the direct thread with this member, creating it if needed.
+  // startNonce is a dependency so re-picking the same member after a failure retries,
+  // even though the search param has not changed.
+  useEffect(() => {
+    if (!me || !toUserId) {
+      setStartError(null)
+      return
+    }
     let cancelled = false
 
     const openDirectThread = async () => {
@@ -134,12 +211,31 @@ export default function Messages() {
     return () => {
       cancelled = true
     }
-  }, [me, toUserId, navigate, loadThreads])
+  }, [me, toUserId, startNonce, navigate, loadThreads])
 
   const activeThread = useMemo(
     () => threads.find((thread) => thread.id === threadId) ?? null,
     [threads, threadId]
   )
+
+  const matchedMembers = useMemo(() => {
+    const term = memberQuery.trim().toLowerCase()
+    const rows = term
+      ? members.filter((member) => member.display_name.toLowerCase().includes(term))
+      : members
+    return {
+      admins: rows.filter((member) => member.role === 'admin'),
+      others: rows.filter((member) => member.role !== 'admin'),
+    }
+  }, [members, memberQuery])
+
+  // Hand off to the "?to=" effect above rather than repeating find-or-create here.
+  const startConversation = (userId: string) => {
+    setPickerOpen(false)
+    setMemberQuery('')
+    setStartNonce((nonce) => nonce + 1)
+    navigate(`/messages?to=${userId}`)
+  }
 
   // Load the open conversation and listen for new messages in it.
   useEffect(() => {
@@ -330,10 +426,85 @@ export default function Messages() {
       <div className="grid gap-4 md:grid-cols-3">
         {/* thread list */}
         <aside className={`${paneClass} ${threadId ? 'hidden md:flex' : 'flex'}`}>
-          <div className="border-b border-stone-200 px-4 py-3">
-            <h1 className="text-base font-semibold text-stone-900">Messages</h1>
-            <p className="text-xs text-stone-500">Your conversations and co-op news</p>
+          <div className="flex items-start gap-2 border-b border-stone-200 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base font-semibold text-stone-900">Messages</h1>
+              <p className="text-xs text-stone-500">Your conversations and co-op news</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPickerOpen((open) => !open)}
+              aria-expanded={pickerOpen}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+            >
+              {pickerOpen ? <X className="h-3.5 w-3.5" /> : <SquarePen className="h-3.5 w-3.5" />}
+              {pickerOpen ? 'Close' : 'New message'}
+            </button>
           </div>
+
+          {pickerOpen && (
+            <div className="shrink-0 border-b border-stone-200 bg-stone-50 px-4 py-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute top-2.5 left-2.5 h-4 w-4 text-stone-400" />
+                <input
+                  type="search"
+                  value={memberQuery}
+                  onChange={(event) => setMemberQuery(event.target.value)}
+                  placeholder="Search members by name"
+                  className="w-full rounded-lg border border-stone-200 bg-white py-2 pr-3 pl-8 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                />
+              </div>
+
+              <div className="mt-2 max-h-56 overflow-y-auto">
+                {membersLoading ? (
+                  <p className="py-4 text-center text-xs text-stone-500">Loading members...</p>
+                ) : membersError ? (
+                  <p className="py-4 text-center text-xs text-red-600">{membersError}</p>
+                ) : matchedMembers.admins.length === 0 && matchedMembers.others.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-stone-500">
+                    {members.length === 0
+                      ? 'No other active members yet.'
+                      : 'No members match that name.'}
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {matchedMembers.admins.length > 0 && (
+                      <div>
+                        <p className="px-1 pb-1 text-[11px] font-semibold tracking-wide text-stone-500 uppercase">
+                          Co-op admins
+                        </p>
+                        <ul className="space-y-1">
+                          {matchedMembers.admins.map((member) => (
+                            <MemberPickerRow
+                              key={member.id}
+                              member={member}
+                              onSelect={startConversation}
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {matchedMembers.others.length > 0 && (
+                      <div>
+                        <p className="px-1 pb-1 text-[11px] font-semibold tracking-wide text-stone-500 uppercase">
+                          Members
+                        </p>
+                        <ul className="space-y-1">
+                          {matchedMembers.others.map((member) => (
+                            <MemberPickerRow
+                              key={member.id}
+                              member={member}
+                              onSelect={startConversation}
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto">
             {threadsLoading ? (
@@ -344,7 +515,7 @@ export default function Messages() {
               <div className="px-4 py-10 text-center">
                 <p className="text-sm font-medium text-stone-700">No conversations yet</p>
                 <p className="mt-1 text-xs text-stone-500">
-                  Start a conversation from a member's profile or a listing.
+                  Use New message to reach any member or a co-op admin.
                 </p>
               </div>
             ) : (
@@ -548,7 +719,7 @@ export default function Messages() {
               </div>
             </>
           )}
-          </section>
+        </section>
       </div>
     </div>
   )

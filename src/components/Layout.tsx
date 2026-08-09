@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useLive } from '../lib/useLive'
 import Avatar from './Avatar'
 
 const navLinks = [
@@ -20,25 +21,23 @@ export default function Layout() {
   const [unread, setUnread] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
 
+  const profileId = profile?.id ?? null
+
+  const fetchUnread = useCallback(async () => {
+    if (!profileId) return
+    const { count } = await supabase
+      .from('message_threads')
+      .select('id', { count: 'exact', head: true })
+      .or(`and(a_id.eq.${profileId},a_unread.eq.true),and(b_id.eq.${profileId},b_unread.eq.true)`)
+    setUnread(count ?? 0)
+  }, [profileId])
+
   useEffect(() => {
-    if (!profile) return
-    let cancelled = false
-    const fetchUnread = async () => {
-      const { count } = await supabase
-        .from('message_threads')
-        .select('id', { count: 'exact', head: true })
-        .or(
-          `and(a_id.eq.${profile.id},a_unread.eq.true),and(b_id.eq.${profile.id},b_unread.eq.true)`
-        )
-      if (!cancelled) setUnread(count ?? 0)
-    }
-    fetchUnread()
-    const interval = setInterval(fetchUnread, 30_000)
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
-  }, [profile, location.pathname])
+    void fetchUnread()
+  }, [fetchUnread, location.pathname])
+
+  // The badge updates the moment a message lands, so no polling loop.
+  useLive('layout-unread', profileId ? [{ table: 'message_threads' }] : [], fetchUnread)
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `whitespace-nowrap rounded-full px-3.5 py-2 text-sm transition-colors ${

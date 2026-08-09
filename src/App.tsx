@@ -8,6 +8,7 @@ import Landing from './pages/Landing'
 // Landing stays eager (first paint for visitors); everything else is
 // code-split so the public bundle stays small.
 const Auth = lazy(() => import('./pages/Auth'))
+const Welcome = lazy(() => import('./pages/Welcome'))
 const PendingApproval = lazy(() => import('./pages/PendingApproval'))
 const Privacy = lazy(() => import('./pages/Privacy'))
 const Terms = lazy(() => import('./pages/Terms'))
@@ -35,6 +36,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Auth />} />
+            <Route path="/welcome" element={<Welcome />} />
             <Route path="/pending" element={<PendingApproval />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />

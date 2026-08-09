@@ -18,16 +18,15 @@ export const LIMITS = {
   listingTitle: 140,
   listingDescription: 5000,
   tradeTitle: 140,
-  tradeNotes: 2000,
-  tradeTaskTitle: 200,
-  tradeTaskCount: 30,
+  tradeOffering: 2000,
+  tradeNeeding: 2000,
+  eventTitle: 140,
+  eventLocation: 200,
+  eventNotes: 5000,
   messageBody: 8000,
   reviewBody: 4000,
   newsletterSubject: 200,
   newsletterBody: 20000,
-  eventTitle: 140,
-  eventLocation: 200,
-  eventNotes: 5000,
 } as const
 
 // All C0/C1 control characters except tab and newline.

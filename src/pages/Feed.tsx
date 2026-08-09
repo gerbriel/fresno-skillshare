@@ -5,6 +5,7 @@ import ListingCard from '../components/ListingCard'
 import { describeError } from '../lib/errors'
 import { FEED_PAGE_SIZE, LISTING_SELECT } from '../lib/queries'
 import { useDebouncedValue } from '../lib/useDebounce'
+import { useLive } from '../lib/useLive'
 import type { Category, ListingWithRelations } from '../lib/types'
 
 type TypeFilter = 'all' | 'offering' | 'seeking'
@@ -122,6 +123,13 @@ export default function Feed() {
   useEffect(() => {
     load(0)
   }, [load])
+
+  // Someone else posting, pausing, or deleting a listing shows up here
+  // without a refresh.
+  const reloadFirstPage = useCallback(() => {
+    void load(0)
+  }, [load])
+  useLive('feed-listings', [{ table: 'listings' }, { table: 'categories' }], reloadFirstPage)
 
   const hasFilters = query !== '' || type !== 'all' || kind !== 'all' || categoryId !== 'all'
 

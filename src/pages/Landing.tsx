@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { HeartHandshake, Sprout } from 'lucide-react'
+import { CalendarDays, HeartHandshake, MapPin, Sprout } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useLive } from '../lib/useLive'
+import { formatEventRange } from '../lib/format'
 import { cleanOptional, cleanText, isValidEmail, LIMITS } from '../lib/validate'
-import type { SiteSettings } from '../lib/types'
+import type { CoopEvent, SiteSettings } from '../lib/types'
 
 const SETTING_KEYS: string[] = ['hero_heading', 'hero_subheading', 'about', 'how_it_works']
 
@@ -19,7 +21,7 @@ const FALLBACK: SiteSettings = {
     'Get invited by a member or request to join.',
     'List the goods or services you offer and what you are seeking.',
     'Browse the feed, match with a neighbor, and propose a trade.',
-    'Complete the trade, check off the tasks, and earn badges.',
+    'Complete the trade, confirm it together, and earn badges.',
     'Review and vouch for each other to build community credit.',
   ],
 }
@@ -49,6 +51,8 @@ export default function Landing() {
   const [content, setContent] = useState<SiteSettings>(FALLBACK)
   const [contentLoading, setContentLoading] = useState(true)
   const [contentError, setContentError] = useState<string | null>(null)
+
+  const [events, setEvents] = useState<CoopEvent[]>([])
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -87,9 +91,34 @@ export default function Landing() {
     setContentLoading(false)
   }, [])
 
+  // A visitor is not signed in, so a failed events fetch is silently dropped
+  // rather than shown as an error on a marketing page.
+  const loadEvents = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .eq('status', 'approved')
+      .gte('starts_at', new Date().toISOString())
+      .order('starts_at', { ascending: true })
+      .limit(4)
+
+    if (error) {
+      setEvents([])
+      return
+    }
+
+    setEvents((data as CoopEvent[] | null) ?? [])
+  }, [])
+
+  const reload = useCallback(async () => {
+    await Promise.all([loadContent(), loadEvents()])
+  }, [loadContent, loadEvents])
+
   useEffect(() => {
-    void loadContent()
-  }, [loadContent])
+    void reload()
+  }, [reload])
+
+  useLive('landing-live', [{ table: 'events' }, { table: 'site_settings' }], reload)
 
   const scrollToJoin = () => {
     joinRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -268,6 +297,43 @@ export default function Landing() {
             </ol>
           )}
         </section>
+
+        {/* Upcoming events */}
+        {events.length > 0 && (
+          <section className="mx-auto max-w-5xl px-5 py-10">
+            <h2 className="text-3xl font-bold tracking-tight text-stone-900">Upcoming events</h2>
+            <p className="mt-3 max-w-2xl text-stone-600">
+              Our gatherings are open to the public. Come by, meet a few members, and see how the
+              co-op works before you ask for an invite.
+            </p>
+
+            <ul className="mt-8 grid gap-4 sm:grid-cols-2">
+              {events.map((event) => (
+                <li
+                  key={event.id}
+                  className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm"
+                >
+                  <h3 className="text-lg font-bold tracking-tight text-stone-900">{event.title}</h3>
+                  <p className="mt-2 flex items-start gap-2 text-sm text-stone-600">
+                    <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                    {formatEventRange(event.starts_at, event.ends_at)}
+                  </p>
+                  {event.location && (
+                    <p className="mt-1.5 flex items-start gap-2 text-sm text-stone-600">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                      {event.location}
+                    </p>
+                  )}
+                  {event.notes && (
+                    <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-stone-600">
+                      {event.notes}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* Join request */}
         <section ref={joinRef} id="join" className="mx-auto max-w-5xl scroll-mt-24 px-5 py-16">

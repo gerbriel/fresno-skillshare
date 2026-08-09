@@ -45,7 +45,7 @@ The React route guards are user experience only. The RLS policies in `supabase/m
 
 1. **Create a Supabase project** at [supabase.com](https://supabase.com).
 
-2. **Run the migrations in order**: open the SQL editor in your Supabase dashboard and run the contents of `supabase/migrations/00001_init.sql`, then `00002_production_hardening.sql`, then `00003_google_auth.sql`, then `00004_account_deletion.sql`, then `00005_rename_fresno_skillshare.sql`, then `00006_events.sql`.
+2. **Run the migrations in order**: open the SQL editor in your Supabase dashboard and run every file in `supabase/migrations/` in filename order (`00001_init.sql` through the highest number).
 
 3. **Configure auth**: in Authentication settings, Email provider is enabled by default. For a smoother first run you can disable "Confirm email" so signups do not need email confirmation. Leave signups enabled: the schema gates access, uninvited signups just land in a pending state.
 
@@ -89,8 +89,18 @@ One-time setup:
 ## How membership works
 
 - **Invited**: an admin adds an email under Admin > Invites. When that person signs up with the same email - password or Google - they are active immediately.
-- **Request to join**: a visitor submits the form on the landing page. An admin approves it under Admin > Requests, which creates an invite for their email. They then sign up and get instant access.
+- **Request to join**: a visitor submits the form on the landing page. An admin approves it under Admin > Requests, which emails them an invitation (see below) and pre-clears their email so signup grants instant access. If they had already signed up and were waiting, approval activates their existing account on the spot (`supabase/migrations/00011_approval_flow.sql`).
 - **Walk-in signup**: anyone can create an account (password or Google), but it sits in pending until an admin approves it under Admin > Members.
+
+## Invitation emails
+
+Approving a join request calls the `invite-member` Edge Function (`supabase/functions/invite-member/index.ts`), which sends Supabase's "You have been invited" email with a sign-in link. The link lands on `/welcome`, where the new member can set a password (optional - Google works too) and continue to the feed. Approved requests in Admin > Requests have a "Resend email" button, and email failures never block the approval itself - the person can always just sign up with their approved email.
+
+One-time setup:
+
+1. **Deploy the function**: `supabase functions deploy invite-member --project-ref <your-project-ref>` (requires `supabase login` with the account that owns the project), or paste the file into the dashboard's Edge Functions editor. No secrets to configure - the function uses the automatically injected service role key and verifies the caller is an active admin before sending anything.
+2. **Configure email sending**: Supabase's built-in sender is limited to a few emails per hour and is meant for testing. For production, set up custom SMTP under Project Settings > Authentication (Resend's free tier works well).
+3. **Customize the template** (optional): Authentication > Email Templates > "Invite user". The redirect to `/welcome` is already covered by the `/**` entries in the Auth URL allow-list.
 
 ## Account deletion (GDPR erasure)
 

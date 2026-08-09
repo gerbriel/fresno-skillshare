@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
-import { formatEventRange } from '../../lib/format'
+import { formatEventRange, timeAgo } from '../../lib/format'
+import { useLive } from '../../lib/useLive'
 import { cleanOptional, cleanText, LIMITS } from '../../lib/validate'
-import type { CoopEvent } from '../../lib/types'
+import type { EventWithProposer } from '../../lib/types'
 import { EmptyBlock, ErrorBlock, Feedback, LoadingBlock, Pill, SectionHeader } from './shared'
 import { buttonClass, cardClass, describeError, inputClass, labelClass } from './helpers'
+
+const EVENT_SELECT = '*, proposer:profiles!events_proposed_by_fkey(id, display_name, avatar_url)'
+
+// Mirrors the events_review_note_len CHECK constraint.
+const REVIEW_NOTE_MAX = 500
 
 /* datetime-local inputs speak local wall-clock time; the database
    speaks timestamptz. These convert between the two. */
@@ -144,7 +150,7 @@ function DraftFields({
 }
 
 export default function EventsTab() {
-  const [events, setEvents] = useState<CoopEvent[]>([])
+  const [events, setEvents] = useState<EventWithProposer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -158,12 +164,13 @@ export default function EventsTab() {
   const [rowError, setRowError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
+
   const load = useCallback(async () => {
-    setLoading(true)
     setError(null)
     const { data, error: queryError } = await supabase
       .from('events')
-      .select('*')
+      .select(EVENT_SELECT)
       .order('starts_at', { ascending: true })
 
     if (queryError) {
@@ -172,15 +179,33 @@ export default function EventsTab() {
       return
     }
 
-    setEvents((data as CoopEvent[] | null) ?? [])
+    setEvents((data ?? []) as unknown as EventWithProposer[])
     setLoading(false)
   }, [])
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
+    setLoading(true)
     void load()
   }, [load])
 
-  const sortByStart = (list: CoopEvent[]) =>
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  // A member proposing an event lands here without a refresh.
+  useLive('admin-events-live', [{ table: 'events' }], load)
+
+  const pending = useMemo(
+    () =>
+      events
+        .filter((item) => item.status === 'pending')
+        .sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    [events]
+  )
+
+  const reviewed = useMemo(() => events.filter((item) => item.status !== 'pending'), [events])
+
+  const sortByStart = (list: EventWithProposer[]) =>
     [...list].sort((a, b) => a.starts_at.localeCompare(b.starts_at))
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
@@ -199,7 +224,7 @@ export default function EventsTab() {
     const { data, error: insertError } = await supabase
       .from('events')
       .insert(payload)
-      .select('*')
+      .select(EVENT_SELECT)
       .single()
 
     if (insertError) {
@@ -208,13 +233,13 @@ export default function EventsTab() {
       return
     }
 
-    setEvents((current) => sortByStart([...current, data as CoopEvent]))
+    setEvents((current) => sortByStart([...current, data as unknown as EventWithProposer]))
     setDraft(EMPTY_DRAFT)
     setFormSuccess('Event published. Every member can see it on the Events page.')
     setCreating(false)
   }
 
-  const startEdit = (item: CoopEvent) => {
+  const startEdit = (item: EventWithProposer) => {
     setRowError(null)
     setEditingId(item.id)
     setEditDraft({
@@ -226,7 +251,7 @@ export default function EventsTab() {
     })
   }
 
-  const saveEdit = async (item: CoopEvent) => {
+  const saveEdit = async (item: EventWithProposer) => {
     const { payload, error: validationError } = draftToPayload(editDraft)
     if (!payload) {
       setRowError(validationError ?? 'Check the event details.')
@@ -240,7 +265,7 @@ export default function EventsTab() {
       .from('events')
       .update(payload)
       .eq('id', item.id)
-      .select('*')
+      .select(EVENT_SELECT)
       .single()
 
     if (updateError) {
@@ -250,13 +275,51 @@ export default function EventsTab() {
     }
 
     setEvents((current) =>
-      sortByStart(current.map((row) => (row.id === item.id ? (data as CoopEvent) : row)))
+      sortByStart(
+        current.map((row) => (row.id === item.id ? (data as unknown as EventWithProposer) : row))
+      )
     )
     setEditingId(null)
     setBusyId(null)
   }
 
-  const handleDelete = async (item: CoopEvent) => {
+  const review = async (item: EventWithProposer, status: 'approved' | 'rejected') => {
+    setBusyId(item.id)
+    setRowError(null)
+
+    const payload = {
+      status,
+      review_note:
+        status === 'rejected' ? cleanOptional(reviewNotes[item.id] ?? '', REVIEW_NOTE_MAX) : null,
+    }
+
+    const { data, error: updateError } = await supabase
+      .from('events')
+      .update(payload)
+      .eq('id', item.id)
+      .select(EVENT_SELECT)
+      .single()
+
+    if (updateError) {
+      setRowError(describeError(updateError, 'We could not review that proposal.'))
+      setBusyId(null)
+      return
+    }
+
+    setEvents((current) =>
+      sortByStart(
+        current.map((row) => (row.id === item.id ? (data as unknown as EventWithProposer) : row))
+      )
+    )
+    setReviewNotes((current) => {
+      const next = { ...current }
+      delete next[item.id]
+      return next
+    })
+    setBusyId(null)
+  }
+
+  const handleDelete = async (item: EventWithProposer) => {
     const ok = window.confirm(`Delete "${item.title}"? Members will no longer see it.`)
     if (!ok) return
 
@@ -285,7 +348,7 @@ export default function EventsTab() {
         action={
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={refresh}
             disabled={loading}
             className={buttonClass('secondary', 'sm')}
           >
@@ -293,6 +356,88 @@ export default function EventsTab() {
           </button>
         }
       />
+
+      <section className="space-y-3">
+        <h3 className="font-semibold text-stone-900">
+          Pending proposals <span className="text-stone-400">({pending.length})</span>
+        </h3>
+
+        {loading ? (
+          <LoadingBlock rows={2} />
+        ) : pending.length === 0 ? (
+          <EmptyBlock>No proposals waiting on you.</EmptyBlock>
+        ) : (
+          <ul className="space-y-3">
+            {pending.map((item) => {
+              const busy = busyId === item.id
+              return (
+                <li
+                  key={item.id}
+                  className="space-y-3 rounded-2xl border border-amber-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-stone-900">{item.title}</p>
+                        <Pill tone="amber">Awaiting review</Pill>
+                      </div>
+                      <p className="mt-1 text-sm text-stone-500">
+                        {formatEventRange(item.starts_at, item.ends_at)}
+                        {item.location ? ` · ${item.location}` : ''}
+                      </p>
+                      <p className="mt-1 text-sm text-stone-500">
+                        Proposed by {item.proposer?.display_name ?? 'a former member'}
+                      </p>
+                    </div>
+                    <span className="whitespace-nowrap text-xs text-stone-400">
+                      {timeAgo(item.created_at)}
+                    </span>
+                  </div>
+
+                  {item.notes && (
+                    <p className="whitespace-pre-wrap rounded-xl bg-stone-50 px-4 py-3 text-sm leading-relaxed text-stone-600">
+                      {item.notes}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void review(item, 'approved')}
+                      className={buttonClass('primary', 'sm')}
+                    >
+                      {busy ? 'Working...' : 'Approve'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void review(item, 'rejected')}
+                      className={buttonClass('danger', 'sm')}
+                    >
+                      {busy ? 'Working...' : 'Reject'}
+                    </button>
+                    <input
+                      type="text"
+                      value={reviewNotes[item.id] ?? ''}
+                      onChange={(event) =>
+                        setReviewNotes((current) => ({
+                          ...current,
+                          [item.id]: event.target.value,
+                        }))
+                      }
+                      maxLength={REVIEW_NOTE_MAX}
+                      placeholder="Reason for rejecting (optional)"
+                      aria-label={`Reason for rejecting ${item.title}`}
+                      className={`sm:max-w-xs ${inputClass}`}
+                    />
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
 
       <form onSubmit={handleCreate} className={`${cardClass} space-y-4`}>
         <h3 className="font-semibold text-stone-900">New event</h3>
@@ -308,17 +453,18 @@ export default function EventsTab() {
       </form>
 
       {rowError && <Feedback tone="error" message={rowError} />}
-      {error && <ErrorBlock message={error} onRetry={() => void load()} />}
+      {error && <ErrorBlock message={error} onRetry={refresh} />}
 
       {loading ? (
         <LoadingBlock rows={3} />
-      ) : events.length === 0 ? (
+      ) : reviewed.length === 0 ? (
         <EmptyBlock>No events yet. Publish the first one above.</EmptyBlock>
       ) : (
         <ul className="space-y-3">
-          {events.map((item) => {
+          {reviewed.map((item) => {
             const busy = busyId === item.id
             const over = new Date(item.ends_at ?? item.starts_at).getTime() < now
+            const rejected = item.status === 'rejected'
 
             if (editingId === item.id) {
               return (
@@ -357,20 +503,42 @@ export default function EventsTab() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-stone-900">{item.title}</p>
-                    <Pill tone={over ? 'stone' : 'emerald'}>{over ? 'Past' : 'Upcoming'}</Pill>
+                    {rejected ? (
+                      <Pill tone="stone">Not approved</Pill>
+                    ) : (
+                      <Pill tone={over ? 'stone' : 'emerald'}>{over ? 'Past' : 'Upcoming'}</Pill>
+                    )}
                   </div>
                   <p className="mt-1 text-sm text-stone-500">
                     {formatEventRange(item.starts_at, item.ends_at)}
                     {item.location ? ` · ${item.location}` : ''}
                   </p>
+                  {item.proposer && (
+                    <p className="mt-1 text-sm text-stone-500">
+                      Proposed by {item.proposer.display_name}
+                    </p>
+                  )}
                   {item.notes && (
                     <p className="mt-1.5 line-clamp-2 whitespace-pre-line text-sm text-stone-500">
                       {item.notes}
                     </p>
                   )}
+                  {item.review_note && (
+                    <p className="mt-1.5 text-sm text-stone-500">Reason: {item.review_note}</p>
+                  )}
                 </div>
 
                 <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                  {rejected && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void review(item, 'approved')}
+                      className={buttonClass('primary', 'sm')}
+                    >
+                      Approve
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={busy}

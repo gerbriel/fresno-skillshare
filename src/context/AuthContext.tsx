@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { useLive } from '../lib/useLive'
 import type { Profile } from '../lib/types'
 
 interface AuthState {
@@ -40,15 +41,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (cancelled) return
       setSession(newSession)
-      if (newSession) {
-        await fetchProfile(newSession.user.id)
-      } else {
+
+      if (!newSession) {
         setProfile(null)
+        setLoading(false)
+        return
       }
-      setLoading(false)
+
+      // A background token renewal is the same user with a fresh token;
+      // refetching the profile on every renewal is pure churn.
+      if (event === 'TOKEN_REFRESHED') return
+
+      // This callback runs while the auth client holds its lock, and
+      // Supabase calls made inside it can deadlock. Defer to a fresh tick.
+      setTimeout(() => {
+        if (cancelled) return
+        void fetchProfile(newSession.user.id).finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+      }, 0)
     })
 
     return () => {
@@ -60,6 +74,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshProfile = useCallback(async () => {
     if (session) await fetchProfile(session.user.id)
   }, [session, fetchProfile])
+
+  // An admin approving, suspending, or promoting this member takes effect
+  // immediately, without them needing to reload.
+  const userId = session?.user.id ?? null
+  const onProfileChanged = useCallback(() => {
+    if (userId) void fetchProfile(userId)
+  }, [userId, fetchProfile])
+
+  useLive(
+    `own-profile:${userId ?? 'none'}`,
+    userId ? [{ table: 'profiles', filter: `id=eq.${userId}` }] : [],
+    onProfileChanged
+  )
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Medal } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -6,13 +6,15 @@ import { useAuth } from '../context/AuthContext'
 import { describeError } from '../lib/errors'
 import { formatDate, timeAgo } from '../lib/format'
 import { cleanText, LIMITS } from '../lib/validate'
+import { useLive } from '../lib/useLive'
 import Avatar from '../components/Avatar'
-import type { ProfileLite, TradeStatus, TradeTask, TradeWithProfiles } from '../lib/types'
+import type { ProfileLite, TradeStatus, TradeWithProfiles } from '../lib/types'
 
 const TRADE_SELECT =
   '*, proposer:profiles!trades_proposer_id_fkey(id, display_name, avatar_url), partner:profiles!trades_partner_id_fkey(id, display_name, avatar_url)'
 
 const statusPill: Record<TradeStatus, string> = {
+  open: 'bg-violet-100 text-violet-800',
   proposed: 'bg-amber-100 text-amber-800',
   accepted: 'bg-sky-100 text-sky-800',
   completed: 'bg-emerald-100 text-emerald-800',
@@ -20,6 +22,7 @@ const statusPill: Record<TradeStatus, string> = {
 }
 
 const statusLabel: Record<TradeStatus, string> = {
+  open: 'Open to anyone',
   proposed: 'Proposed',
   accepted: 'In progress',
   completed: 'Completed',
@@ -27,11 +30,15 @@ const statusLabel: Record<TradeStatus, string> = {
 }
 
 const sections: { status: TradeStatus; heading: string }[] = [
+  { status: 'open', heading: 'Open to anyone' },
   { status: 'proposed', heading: 'Waiting on response' },
   { status: 'accepted', heading: 'In progress' },
   { status: 'completed', heading: 'Completed' },
   { status: 'declined', heading: 'Declined' },
 ]
+
+/** Sentinel for "post this to the open board" in the partner dropdown. */
+const ANYONE = 'anyone'
 
 const smallButton =
   'rounded-lg border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-700 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50'
@@ -43,7 +50,6 @@ export default function Trades() {
   const withUserId = searchParams.get('with')
 
   const [trades, setTrades] = useState<TradeWithProfiles[]>([])
-  const [tasks, setTasks] = useState<TradeTask[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -53,9 +59,8 @@ export default function Trades() {
   const [formOpen, setFormOpen] = useState(false)
   const [partnerId, setPartnerId] = useState('')
   const [title, setTitle] = useState('')
-  const [notes, setNotes] = useState('')
-  const [taskDraft, setTaskDraft] = useState('')
-  const [taskList, setTaskList] = useState<string[]>([])
+  const [offering, setOffering] = useState('')
+  const [needing, setNeeding] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -77,30 +82,8 @@ export default function Trades() {
       return
     }
 
-    const rows = (data ?? []) as unknown as TradeWithProfiles[]
-    setTrades(rows)
+    setTrades((data ?? []) as unknown as TradeWithProfiles[])
     setLoadError(null)
-
-    if (rows.length === 0) {
-      setTasks([])
-      setLoading(false)
-      return
-    }
-
-    const { data: taskRows, error: taskError } = await supabase
-      .from('trade_tasks')
-      .select('*')
-      .in(
-        'trade_id',
-        rows.map((trade) => trade.id)
-      )
-      .order('created_at', { ascending: true })
-
-    if (taskError) {
-      setLoadError(describeError(taskError, 'We could not load the trade tasks.'))
-    } else {
-      setTasks((taskRows ?? []) as TradeTask[])
-    }
     setLoading(false)
   }, [me])
 
@@ -109,6 +92,10 @@ export default function Trades() {
     setLoading(true)
     void loadTrades()
   }, [me, loadTrades])
+
+  // The open board is shared: a claim by someone else updates every
+  // member's view immediately.
+  useLive('trades-live', me ? [{ table: 'trades' }] : [], loadTrades)
 
   useEffect(() => {
     if (!me) return
@@ -141,62 +128,46 @@ export default function Trades() {
     setFormOpen(true)
   }, [withUserId])
 
-  const tasksByTrade = useMemo(() => {
-    const map: Record<string, TradeTask[]> = {}
-    for (const task of tasks) {
-      const list = map[task.trade_id]
-      if (list) list.push(task)
-      else map[task.trade_id] = [task]
-    }
-    return map
-  }, [tasks])
-
-  const addTask = () => {
-    const value = cleanText(taskDraft, LIMITS.tradeTaskTitle)
-    if (!value) return
-    if (taskList.length >= LIMITS.tradeTaskCount) {
-      setFormError(`A trade can have at most ${LIMITS.tradeTaskCount} tasks.`)
-      return
-    }
-    setTaskList((prev) => [...prev, value])
-    setTaskDraft('')
-  }
-
   const resetForm = () => {
     setPartnerId('')
     setTitle('')
-    setNotes('')
-    setTaskDraft('')
-    setTaskList([])
+    setOffering('')
+    setNeeding('')
     setFormError(null)
   }
 
   const submitTrade = async () => {
     if (!me) return
-    const trimmedTitle = title.trim()
+    const cleanTitle = cleanText(title, LIMITS.tradeTitle)
+    const cleanOffering = cleanText(offering, LIMITS.tradeOffering)
+    const cleanNeeding = cleanText(needing, LIMITS.tradeNeeding)
+
     if (!partnerId) {
-      setFormError('Pick a trade partner.')
+      setFormError('Pick a trade partner, or open it up to anyone.')
       return
     }
-    if (!trimmedTitle) {
+    if (!cleanTitle) {
       setFormError('Give the trade a title. This becomes the badge label.')
       return
     }
-    if (taskList.length === 0) {
-      setFormError('Add at least one task.')
+    if (!cleanOffering) {
+      setFormError('Say what you are offering.')
+      return
+    }
+    if (!cleanNeeding) {
+      setFormError('Say what you need in return.')
       return
     }
 
     setSubmitting(true)
     setFormError(null)
 
-    // One transaction server-side: the trade and its tasks land together
-    // or not at all.
-    const { error } = await supabase.rpc('create_trade_with_tasks', {
-      p_partner_id: partnerId,
-      p_title: trimmedTitle,
-      p_notes: notes.trim() || null,
-      p_tasks: taskList,
+    // A null partner posts it to the open board instead of a direct proposal.
+    const { error } = await supabase.rpc('create_trade', {
+      p_partner_id: partnerId === ANYONE ? null : partnerId,
+      p_title: cleanTitle,
+      p_offering: cleanOffering,
+      p_needing: cleanNeeding,
     })
     setSubmitting(false)
 
@@ -219,26 +190,6 @@ export default function Trades() {
     })
   }
 
-  const toggleTask = async (task: TradeTask) => {
-    const nextDone = !task.done
-    const completedAt = nextDone ? new Date().toISOString() : null
-    setTasks((prev) =>
-      prev.map((row) =>
-        row.id === task.id ? { ...row, done: nextDone, completed_at: completedAt } : row
-      )
-    )
-    const { error } = await supabase
-      .from('trade_tasks')
-      .update({ done: nextDone, completed_at: completedAt })
-      .eq('id', task.id)
-    if (error) {
-      setTradeError(task.trade_id, describeError(error, 'Could not update that task.'))
-      setTasks((prev) => prev.map((row) => (row.id === task.id ? task : row)))
-    } else {
-      setTradeError(task.trade_id, null)
-    }
-  }
-
   const changeStatus = async (trade: TradeWithProfiles, status: TradeStatus) => {
     setBusyTradeId(trade.id)
     setTradeError(trade.id, null)
@@ -252,7 +203,11 @@ export default function Trades() {
   }
 
   const cancelTrade = async (trade: TradeWithProfiles) => {
-    if (!window.confirm('Cancel this trade proposal?')) return
+    const prompt =
+      trade.status === 'open'
+        ? 'Take this down from the open board?'
+        : 'Cancel this trade proposal?'
+    if (!window.confirm(prompt)) return
     setBusyTradeId(trade.id)
     setTradeError(trade.id, null)
     const { error } = await supabase.from('trades').delete().eq('id', trade.id)
@@ -261,6 +216,23 @@ export default function Trades() {
       setTradeError(trade.id, describeError(error, 'Could not cancel the trade.'))
       return
     }
+    await loadTrades()
+  }
+
+  const claimTrade = async (trade: TradeWithProfiles) => {
+    setBusyTradeId(trade.id)
+    setTradeError(trade.id, null)
+    const { error } = await supabase.rpc('claim_open_trade', { p_trade_id: trade.id })
+    setBusyTradeId(null)
+    if (error) {
+      setTradeError(trade.id, describeError(error, 'Could not claim that trade.'))
+      await loadTrades()
+      return
+    }
+    setTradeNotes((prev) => ({
+      ...prev,
+      [trade.id]: `You claimed this trade. Do the work, then ${trade.proposer.display_name} confirms it is done.`,
+    }))
     await loadTrades()
   }
 
@@ -273,9 +245,12 @@ export default function Trades() {
       setTradeError(trade.id, describeError(error, 'Could not confirm completion.'))
       return
     }
+    // Whoever did the work earns the badge: the claimer on an open trade,
+    // the proposer otherwise.
+    const earner = trade.was_open ? trade.partner?.display_name : trade.proposer.display_name
     setTradeNotes((prev) => ({
       ...prev,
-      [trade.id]: `Trade completed. ${trade.proposer.display_name} earned the ${trade.title} badge.`,
+      [trade.id]: `Trade completed. ${earner ?? 'Your partner'} earned the ${trade.title} badge.`,
     }))
     await loadTrades()
   }
@@ -286,14 +261,14 @@ export default function Trades() {
 
   const renderTrade = (trade: TradeWithProfiles) => {
     const iAmProposer = trade.proposer_id === me
+    // An unclaimed open trade has no counterpart yet.
     const other = iAmProposer ? trade.partner : trade.proposer
-    const tradeTasks = tasksByTrade[trade.id] ?? []
-    const doneCount = tradeTasks.filter((task) => task.done).length
-    const allDone = tradeTasks.length > 0 && doneCount === tradeTasks.length
-    const canToggle = trade.status === 'accepted'
     const busy = busyTradeId === trade.id
     const errorMessage = tradeErrors[trade.id]
     const successNote = tradeNotes[trade.id]
+    const isOpen = trade.status === 'open'
+    // The member who asked for the work is the one who confirms it.
+    const canConfirm = trade.status === 'accepted' && (trade.was_open ? iAmProposer : !iAmProposer)
 
     return (
       <article
@@ -308,13 +283,21 @@ export default function Trades() {
               )}
               {trade.title}
             </h3>
-            <Link
-              to={`/u/${other.id}`}
-              className="mt-1.5 flex items-center gap-2 text-sm text-stone-600 hover:text-emerald-700"
-            >
-              <Avatar name={other.display_name} url={other.avatar_url} size="sm" />
-              <span>with {other.display_name}</span>
-            </Link>
+            {other ? (
+              <Link
+                to={`/u/${other.id}`}
+                className="mt-1.5 flex items-center gap-2 text-sm text-stone-600 hover:text-emerald-700"
+              >
+                <Avatar name={other.display_name} url={other.avatar_url} size="sm" />
+                <span>
+                  {isOpen ? 'Posted by' : 'with'} {other.display_name}
+                </span>
+              </Link>
+            ) : (
+              <p className="mt-1.5 text-sm text-stone-500">
+                Waiting for a neighbor to claim this
+              </p>
+            )}
           </div>
           <span
             className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusPill[trade.status]}`}
@@ -323,41 +306,19 @@ export default function Trades() {
           </span>
         </div>
 
-        {trade.notes && <p className="text-sm whitespace-pre-line text-stone-600">{trade.notes}</p>}
-
-        <div className="rounded-xl border border-stone-100 bg-stone-50 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-semibold tracking-wide text-stone-500 uppercase">
-              Tasks
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+            <span className="text-xs font-semibold tracking-wide text-emerald-800 uppercase">
+              Offering
             </span>
-            <span className="text-xs text-stone-500">
-              {doneCount} of {tradeTasks.length} tasks done
-            </span>
+            <p className="mt-1 text-sm whitespace-pre-line text-stone-700">{trade.offering}</p>
           </div>
-          {tradeTasks.length === 0 ? (
-            <p className="text-xs text-stone-500">No tasks on this trade.</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {tradeTasks.map((task) => (
-                <li key={task.id} className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={task.done}
-                    disabled={!canToggle}
-                    onChange={() => void toggleTask(task)}
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-stone-300 text-emerald-600 accent-emerald-600 disabled:cursor-not-allowed"
-                  />
-                  <span
-                    className={`text-sm ${
-                      task.done ? 'text-stone-400 line-through' : 'text-stone-700'
-                    }`}
-                  >
-                    {task.title}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+            <span className="text-xs font-semibold tracking-wide text-amber-800 uppercase">
+              Needs
+            </span>
+            <p className="mt-1 text-sm whitespace-pre-line text-stone-700">{trade.needing}</p>
+          </div>
         </div>
 
         {errorMessage && <p className="text-xs text-red-600">{errorMessage}</p>}
@@ -396,18 +357,29 @@ export default function Trades() {
               </>
             )}
 
-            {iAmProposer && trade.status === 'proposed' && (
+            {!iAmProposer && isOpen && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void claimTrade(trade)}
+                className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy ? 'Claiming...' : 'Claim this trade'}
+              </button>
+            )}
+
+            {iAmProposer && (trade.status === 'proposed' || isOpen) && (
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => void cancelTrade(trade)}
                 className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Cancel
+                {isOpen ? 'Take down' : 'Cancel'}
               </button>
             )}
 
-            {!iAmProposer && trade.status === 'accepted' && allDone && (
+            {canConfirm && (
               <button
                 type="button"
                 disabled={busy}
@@ -443,8 +415,8 @@ export default function Trades() {
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        Propose a trade, check off the tasks as you go, your partner confirms completion, you earn a
-        badge.
+        Say what you are offering and what you need, do the work, your partner confirms completion,
+        you earn a badge.
       </div>
 
       {formOpen && (
@@ -462,12 +434,18 @@ export default function Trades() {
               className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
             >
               <option value="">Pick a member</option>
+              <option value={ANYONE}>Anyone can claim it</option>
               {members.map((member) => (
                 <option key={member.id} value={member.id}>
                   {member.display_name}
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-stone-500">
+              {partnerId === ANYONE
+                ? 'This goes on the open board for every member to see. The first neighbor to claim it becomes your partner, and you confirm the work when it is done.'
+                : 'Pick someone specific, or open it up to anyone if you just need the help.'}
+            </p>
             {membersError && <p className="mt-1 text-xs text-red-600">{membersError}</p>}
           </div>
 
@@ -488,66 +466,42 @@ export default function Trades() {
             </p>
           </div>
 
-          <div>
-            <label htmlFor="trade-notes" className="mb-1 block text-sm font-medium text-stone-700">
-              Notes
-            </label>
-            <textarea
-              id="trade-notes"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              rows={3}
-              maxLength={LIMITS.tradeNotes}
-              placeholder="Anything your partner should know about timing, materials, or location."
-              className="w-full resize-y rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-            />
-          </div>
-
-          <div>
-            <span className="mb-1 block text-sm font-medium text-stone-700">Tasks</span>
-            <div className="flex gap-2">
-              <input
-                value={taskDraft}
-                onChange={(event) => setTaskDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    addTask()
-                  }
-                }}
-                maxLength={LIMITS.tradeTaskTitle}
-                placeholder="Add a step, for example: buy lumber"
-                className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              />
-              <button
-                type="button"
-                onClick={addTask}
-                disabled={!taskDraft.trim()}
-                className="rounded-xl border border-stone-200 px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="trade-offering"
+                className="mb-1 block text-sm font-medium text-stone-700"
               >
-                Add task
-              </button>
+                What I'm offering
+              </label>
+              <textarea
+                id="trade-offering"
+                value={offering}
+                onChange={(event) => setOffering(event.target.value)}
+                rows={4}
+                maxLength={LIMITS.tradeOffering}
+                placeholder="Carpentry, a truck, six jars of salsa"
+                className="w-full resize-y rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
             </div>
 
-            {taskList.length > 0 && (
-              <ul className="mt-2 space-y-1.5">
-                {taskList.map((taskTitle, index) => (
-                  <li
-                    key={`${taskTitle}-${index}`}
-                    className="flex items-center gap-2 rounded-lg bg-stone-50 px-3 py-1.5 text-sm text-stone-700"
-                  >
-                    <span className="flex-1">{taskTitle}</span>
-                    <button
-                      type="button"
-                      onClick={() => setTaskList((prev) => prev.filter((_, i) => i !== index))}
-                      className="text-xs font-medium text-red-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div>
+              <label
+                htmlFor="trade-needing"
+                className="mb-1 block text-sm font-medium text-stone-700"
+              >
+                What I need
+              </label>
+              <textarea
+                id="trade-needing"
+                value={needing}
+                onChange={(event) => setNeeding(event.target.value)}
+                rows={4}
+                maxLength={LIMITS.tradeNeeding}
+                placeholder="Help hauling debris on a Saturday"
+                className="w-full resize-y rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
           </div>
 
           {formError && <p className="text-sm text-red-600">{formError}</p>}

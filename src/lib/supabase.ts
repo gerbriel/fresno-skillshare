@@ -10,6 +10,14 @@ if (!url || !anonKey) {
 }
 
 export const supabase = createClient(url, anonKey, {
-  // PKCE keeps the OAuth code exchange verifiable by this browser only.
-  auth: { flowType: 'pkce' },
+  auth: {
+    // PKCE keeps the OAuth code exchange verifiable by this browser only.
+    flowType: 'pkce',
+    // Stay signed in across reloads and restarts: the session is kept in
+    // localStorage and the access token is renewed in the background
+    // before it expires, so members are not logged out mid-session.
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
 })
