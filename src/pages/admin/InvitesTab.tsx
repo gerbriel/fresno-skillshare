@@ -97,14 +97,20 @@ export default function InvitesTab() {
     // Send the invitation email through the invite-member Edge Function.
     // A failure is soft: the invite row exists, so signing up with this
     // email still grants instant access.
-    const { error: fnError } = await supabase.functions.invoke('invite-member', {
+    const { data: fnData, error: fnError } = await supabase.functions.invoke('invite-member', {
       body: { email: trimmedEmail, redirectTo: `${window.location.origin}/welcome` },
     })
-    setFormSuccess(
-      fnError
-        ? `Invite created for ${trimmedEmail}, but the email could not be sent. Tell them to sign up with this email and they will get access immediately.`
-        : `Invite created and an invitation email is on its way to ${trimmedEmail}.`
-    )
+    if (fnError) {
+      setFormSuccess(
+        `Invite created for ${trimmedEmail}, but the email could not be sent. Tell them to sign up with this email and they will get access immediately.`
+      )
+    } else if ((fnData as { status?: string } | null)?.status === 'already_registered') {
+      setFormSuccess(
+        `Invite created, but ${trimmedEmail} already has an account, so no email was sent. If they are waiting for approval, approve them under Members instead.`
+      )
+    } else {
+      setFormSuccess(`Invite created and an invitation email is on its way to ${trimmedEmail}.`)
+    }
     setCreating(false)
   }
 
