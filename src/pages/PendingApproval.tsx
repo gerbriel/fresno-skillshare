@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Ban, Clock, Sprout } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
 export default function PendingApproval() {
@@ -13,10 +14,32 @@ export default function PendingApproval() {
   const [checkError, setCheckError] = useState<string | null>(null)
   const [signingOut, setSigningOut] = useState(false)
 
+  const email = session?.user?.email ?? null
+
+  // An approval may have happened AFTER this account was created, in
+  // which case its invite was never checked at signup. Claiming here
+  // closes that ordering gap; returns true when it activated us.
+  const claimInvite = useCallback(async (): Promise<boolean> => {
+    const { data } = await supabase.rpc('claim_pending_invite')
+    return data === true
+  }, [])
+
+  useEffect(() => {
+    if (loading || !session || profile?.status !== 'pending') return
+    let cancelled = false
+    void claimInvite().then((claimed) => {
+      if (claimed && !cancelled) void refreshProfile()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [loading, session, profile?.status, claimInvite, refreshProfile])
+
   const handleCheckAgain = async () => {
     setChecking(true)
     setCheckError(null)
     try {
+      await claimInvite()
       await refreshProfile()
       setCheckedAt(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }))
     } catch {
@@ -108,6 +131,13 @@ export default function PendingApproval() {
             Skillshare is invite-only, so an admin reviews every new account. You will get access to the
             feed as soon as you are approved.
           </p>
+          {email && (
+            <p className="mt-3 text-sm leading-relaxed text-stone-500">
+              You are signed in as <span className="font-medium text-stone-700">{email}</span>.
+              Approval is matched by email, so this must be the exact address that was invited or
+              approved.
+            </p>
+          )}
           <p className="mt-4 text-sm leading-relaxed text-stone-500">
             In a hurry? Ask the member who invited you to give an admin a nudge, or submit a join
             request on the{' '}

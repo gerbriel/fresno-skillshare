@@ -91,6 +91,7 @@ One-time setup:
 - **Invited**: an admin adds an email under Admin > Invites. When that person signs up with the same email - password or Google - they are active immediately.
 - **Request to join**: a visitor submits the form on the landing page. An admin approves it under Admin > Requests, which emails them an invitation (see below) and pre-clears their email so signup grants instant access. If they had already signed up and were waiting, approval activates their existing account on the spot (`supabase/migrations/00011_approval_flow.sql`).
 - **Walk-in signup**: anyone can create an account (password or Google), but it sits in pending until an admin approves it under Admin > Members.
+- **Order never matters**: invites are claimed at signup AND at sign-in (`supabase/migrations/00012_claim_invite_on_signin.sql`) - the pending page checks for a matching invite on load and on "Check again", so approving someone after they already signed up still lets them in.
 
 ## Invitation emails
 
