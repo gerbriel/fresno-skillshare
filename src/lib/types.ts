@@ -47,6 +47,22 @@ export interface Category {
   created_at: string
 }
 
+/** A poll attached to a newsletter; members vote on the /news page. */
+export interface Poll {
+  id: string
+  newsletter_id: string | null
+  question: string
+  closes_at: string | null
+  created_at: string
+}
+
+export interface PollOption {
+  id: string
+  poll_id: string
+  label: string
+  position: number
+}
+
 /** One member blocking another; no messages flow either direction. */
 export interface Block {
   blocker_id: string

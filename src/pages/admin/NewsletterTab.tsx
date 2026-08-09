@@ -17,6 +17,9 @@ export default function NewsletterTab() {
   const [draftId, setDraftId] = useState<string | null>(null)
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [pollQuestion, setPollQuestion] = useState('')
+  const [pollOptions, setPollOptions] = useState<string[]>(['', ''])
+  const [pollIds, setPollIds] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -36,7 +39,21 @@ export default function NewsletterTab() {
       return
     }
 
-    setNewsletters((data ?? []) as Newsletter[])
+    const rows = (data ?? []) as Newsletter[]
+    setNewsletters(rows)
+
+    // Note which newsletters carry a poll, to badge them in the lists.
+    if (rows.length > 0) {
+      const { data: pollRows } = await supabase
+        .from('polls')
+        .select('newsletter_id')
+        .in('newsletter_id', rows.map((row) => row.id))
+      setPollIds(
+        new Set((pollRows ?? []).map((row) => (row as { newsletter_id: string }).newsletter_id))
+      )
+    } else {
+      setPollIds(new Set())
+    }
     setLoading(false)
   }, [])
 
@@ -51,6 +68,22 @@ export default function NewsletterTab() {
     setDraftId(null)
     setSubject('')
     setBody('')
+    setPollQuestion('')
+    setPollOptions(['', ''])
+  }
+
+  // Persist the poll for a draft newsletter. Empty question removes it.
+  const savePoll = async (newsletterId: string): Promise<string | null> => {
+    const options = pollOptions.map((option) => option.trim()).filter((option) => option.length > 0)
+    if (pollQuestion.trim() && options.length < 2) {
+      return 'A poll needs a question and at least two options.'
+    }
+    const { error: pollError } = await supabase.rpc('upsert_newsletter_poll', {
+      p_newsletter_id: newsletterId,
+      p_question: pollQuestion.trim(),
+      p_options: options,
+    })
+    return pollError ? describeError(pollError, 'We could not save the poll.') : null
   }
 
   const resetComposer = () => {
@@ -82,11 +115,24 @@ export default function NewsletterTab() {
         return
       }
 
+      const pollError = await savePoll(draftId)
+      if (pollError) {
+        setFeedback({ tone: 'error', message: pollError })
+        setSaving(false)
+        return
+      }
+
       setNewsletters((current) =>
         current.map((item) =>
           item.id === draftId ? { ...item, subject: trimmedSubject, body: trimmedBody } : item
         )
       )
+      setPollIds((current) => {
+        const next = new Set(current)
+        if (pollQuestion.trim()) next.add(draftId)
+        else next.delete(draftId)
+        return next
+      })
       setFeedback({ tone: 'success', message: 'Draft saved.' })
       setSaving(false)
       return
@@ -105,8 +151,19 @@ export default function NewsletterTab() {
     }
 
     const created = data as Newsletter
+    const pollError = await savePoll(created.id)
+    if (pollError) {
+      // The draft saved; only the poll failed. Keep the draft and say so.
+      setNewsletters((current) => [created, ...current])
+      setDraftId(created.id)
+      setFeedback({ tone: 'error', message: pollError })
+      setSaving(false)
+      return
+    }
+
     setNewsletters((current) => [created, ...current])
     setDraftId(created.id)
+    if (pollQuestion.trim()) setPollIds((current) => new Set(current).add(created.id))
     setFeedback({ tone: 'success', message: 'Draft saved. Send it whenever you are ready.' })
     setSaving(false)
   }
@@ -190,12 +247,41 @@ export default function NewsletterTab() {
     setBusyId(null)
   }
 
-  const editDraft = (newsletter: Newsletter) => {
+  const editDraft = async (newsletter: Newsletter) => {
     setDraftId(newsletter.id)
     setSubject(newsletter.subject)
     setBody(newsletter.body)
     setFeedback(null)
+
+    // Load any attached poll into the composer.
+    const { data: poll } = await supabase
+      .from('polls')
+      .select('id, question')
+      .eq('newsletter_id', newsletter.id)
+      .maybeSingle()
+    if (poll) {
+      const { data: options } = await supabase
+        .from('poll_options')
+        .select('label')
+        .eq('poll_id', (poll as { id: string }).id)
+        .order('position', { ascending: true })
+      setPollQuestion((poll as { question: string }).question)
+      const labels = (options ?? []).map((option) => (option as { label: string }).label)
+      setPollOptions(labels.length >= 2 ? labels : [...labels, '', ''].slice(0, 2))
+    } else {
+      setPollQuestion('')
+      setPollOptions(['', ''])
+    }
   }
+
+  const setOption = (index: number, value: string) => {
+    setPollOptions((current) => current.map((option, i) => (i === index ? value : option)))
+  }
+  const addOption = () => setPollOptions((current) => (current.length >= 8 ? current : [...current, '']))
+  const removeOption = (index: number) =>
+    setPollOptions((current) =>
+      current.length <= 2 ? current : current.filter((_, i) => i !== index)
+    )
 
   const composerDraft = draftId ? newsletters.find((item) => item.id === draftId) ?? null : null
   const sendingComposer = composerDraft !== null && sendingId === composerDraft.id
@@ -257,6 +343,55 @@ export default function NewsletterTab() {
           />
         </div>
 
+        <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <span className={labelClass}>Poll (optional)</span>
+            <span className="text-xs text-stone-400">Anonymous, results shown to everyone</span>
+          </div>
+          <input
+            type="text"
+            value={pollQuestion}
+            onChange={(event) => setPollQuestion(event.target.value)}
+            maxLength={200}
+            placeholder="Ask a question, e.g. Which Saturday works for the swap meet?"
+            className={`mt-2 ${inputClass}`}
+          />
+          {pollQuestion.trim() && (
+            <div className="mt-3 space-y-2">
+              {pollOptions.map((option, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={option}
+                    onChange={(event) => setOption(index, event.target.value)}
+                    maxLength={100}
+                    placeholder={`Option ${index + 1}`}
+                    className={inputClass}
+                  />
+                  {pollOptions.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => removeOption(index)}
+                      className="shrink-0 rounded-lg border border-stone-300 px-2 py-1 text-xs text-stone-600 hover:bg-stone-100"
+                      aria-label={`Remove option ${index + 1}`}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              {pollOptions.length < 8 && (
+                <button type="button" onClick={addOption} className={buttonClass('secondary', 'sm')}>
+                  Add option
+                </button>
+              )}
+              <p className="text-xs text-stone-400">
+                The poll appears under this newsletter on the Co-op news page once you send it.
+              </p>
+            </div>
+          )}
+        </div>
+
         {feedback && <Feedback tone={feedback.tone} message={feedback.message} />}
 
         <div className="flex flex-wrap gap-2">
@@ -305,6 +440,7 @@ export default function NewsletterTab() {
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-semibold text-stone-900">{newsletter.subject}</p>
                           <Pill tone="amber">Draft</Pill>
+                          {pollIds.has(newsletter.id) && <Pill tone="emerald">Poll</Pill>}
                         </div>
                         <p className="mt-1 line-clamp-2 text-sm text-stone-500">{newsletter.body}</p>
                         <p className="mt-1 text-xs text-stone-400">
@@ -315,7 +451,7 @@ export default function NewsletterTab() {
                         <button
                           type="button"
                           disabled={busy || sending}
-                          onClick={() => editDraft(newsletter)}
+                          onClick={() => void editDraft(newsletter)}
                           className={buttonClass('secondary', 'sm')}
                         >
                           Edit
@@ -359,6 +495,7 @@ export default function NewsletterTab() {
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-stone-900">{newsletter.subject}</p>
                         <Pill tone="emerald">Sent</Pill>
+                        {pollIds.has(newsletter.id) && <Pill tone="stone">Poll</Pill>}
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm text-stone-500">{newsletter.body}</p>
                     </div>

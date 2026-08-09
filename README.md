@@ -123,6 +123,12 @@ Several protections keep the co-op honest and enforce the security boundary in t
 - **Blocking.** In a conversation, a member can Block another member; once blocked, no messages flow in either direction (enforced on the messages/threads insert policies). Manage from the conversation header.
 - **Share a conversation with admins.** A participant can share a thread for review (`report_thread` RPC). Only then can admins read that specific thread, under Admin > Reports. Admins cannot read conversations that have not been shared.
 
+## Newsletter polls
+
+An admin can attach a poll to a newsletter from Admin > Newsletter: type a question and 2-8 options in the composer's "Poll (optional)" box (editable while the newsletter is a draft). Once the newsletter is sent, the poll appears beneath it on the members' Co-op news page (`/news`), where members vote with one tap.
+
+Votes are **anonymous** and the running tally is **always visible** — a member sees the percentages and counts whether or not they have voted, but never who voted for what (counts come from the `poll_results_multi` SECURITY DEFINER function; the raw votes are readable only by the voter). One vote per member, changeable by tapping another option. Backed by `supabase/migrations/00024_newsletter_polls.sql` (`polls`, `poll_options`, `poll_votes`, plus the `upsert_newsletter_poll` and `cast_vote` RPCs).
+
 ## Security configuration (must-do)
 
 These live in the Supabase dashboard, not the code, and the app's guarantees depend on them:
