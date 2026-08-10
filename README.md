@@ -133,6 +133,12 @@ An admin can attach a poll to a newsletter from Admin > Newsletter: type a quest
 
 Votes are **anonymous** and the running tally is **always visible** — a member sees the percentages and counts whether or not they have voted, but never who voted for what (counts come from the `poll_results_multi` SECURITY DEFINER function; the raw votes are readable only by the voter). One vote per member, changeable by tapping another option. Backed by `supabase/migrations/00024_newsletter_polls.sql` (`polls`, `poll_options`, `poll_votes`, plus the `upsert_newsletter_poll` and `cast_vote` RPCs).
 
+## Password resets
+
+- **Self-service**: the sign-in page has a "Forgot password?" link. It calls `resetPasswordForEmail` and emails a recovery link (the response is always neutral so it can't reveal which emails have accounts). The link lands on `/reset-password`, where the member sets a new password and is signed in.
+- **Admin-sent**: Admin > Members has a "Send reset link" button per member. Because emails live in `auth.users` (not client-readable), this goes through the admin-gated `send-reset` Edge Function (`supabase/functions/send-reset/index.ts`), which verifies the caller is an admin, looks up the email, and triggers the same recovery email.
+- Only applies to password accounts; Google-only members just sign in with Google. Both paths use the Supabase email sender, so custom SMTP matters for volume, and `/reset-password` must be in the Auth redirect allow-list (the `/**` entries already cover it). Deploy the function: `supabase functions deploy send-reset`.
+
 ## Security configuration (must-do)
 
 These live in the Supabase dashboard, not the code, and the app's guarantees depend on them:

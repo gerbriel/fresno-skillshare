@@ -173,6 +173,25 @@ export default function MembersTab() {
     setBusyId(null)
   }
 
+  // Email a password-reset link. The member's email lives in auth.users,
+  // so this goes through the admin-gated send-reset Edge Function.
+  const sendReset = async (member: Profile) => {
+    setBusyId(member.id)
+    setActionError(null)
+    setActionNotice(null)
+    const { data, error: fnError } = await supabase.functions.invoke('send-reset', {
+      body: { userId: member.id, redirectTo: `${window.location.origin}/reset-password` },
+    })
+    setBusyId(null)
+    if (fnError || (data as { status?: string } | null)?.status !== 'sent') {
+      setActionError(
+        `We could not send a reset link to ${member.display_name}. Make sure the send-reset function is deployed.`
+      )
+      return
+    }
+    setActionNotice(`A password reset link is on its way to ${member.display_name}.`)
+  }
+
   const changeStatus = (member: Profile, status: MemberStatus) => {
     if (status === 'suspended') {
       const ok = window.confirm(
@@ -339,6 +358,14 @@ export default function MembersTab() {
                           {busy ? 'Working...' : 'Reactivate'}
                         </button>
                       )}
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void sendReset(member)}
+                        className={buttonClass('secondary', 'sm')}
+                      >
+                        {busy ? 'Working...' : 'Send reset link'}
+                      </button>
                       <button
                         type="button"
                         disabled={busy}

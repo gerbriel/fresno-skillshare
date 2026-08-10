@@ -9,6 +9,7 @@ import Landing from './pages/Landing'
 // code-split so the public bundle stays small.
 const Auth = lazy(() => import('./pages/Auth'))
 const Welcome = lazy(() => import('./pages/Welcome'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const PendingApproval = lazy(() => import('./pages/PendingApproval'))
 const Privacy = lazy(() => import('./pages/Privacy'))
 const Terms = lazy(() => import('./pages/Terms'))
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Auth />} />
             <Route path="/welcome" element={<Welcome />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/pending" element={<PendingApproval />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />

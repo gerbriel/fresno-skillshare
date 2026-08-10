@@ -48,6 +48,27 @@ export default function Auth() {
     navigate('/feed')
   }
 
+  // Self-service reset: email a recovery link. The response is always
+  // neutral so it cannot be used to probe which emails have accounts.
+  const handleForgot = async () => {
+    const trimmed = email.trim()
+    if (!trimmed) {
+      setError('Enter your email above first, then tap "Forgot password?"')
+      setNotice(null)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    await supabase.auth.resetPasswordForEmail(trimmed, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    setBusy(false)
+    setNotice(
+      `If an account uses ${trimmed}, a password reset link is on its way. Check your inbox and spam folder.`
+    )
+  }
+
   // Google sign-in goes through the same invite gate as email signup:
   // the profile trigger activates invited emails instantly and parks
   // everyone else in the pending review queue.
@@ -203,9 +224,19 @@ export default function Auth() {
                 </div>
 
                 <div>
-                  <label htmlFor="signin-password" className="block text-sm font-medium text-stone-700">
-                    Password
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="signin-password" className="block text-sm font-medium text-stone-700">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleForgot()}
+                      disabled={busy}
+                      className="text-xs font-medium text-emerald-700 hover:underline disabled:opacity-60"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
                   <input
                     id="signin-password"
                     type="password"
@@ -221,6 +252,12 @@ export default function Auth() {
                 {error && (
                   <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                     {error}
+                  </p>
+                )}
+
+                {notice && (
+                  <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    {notice}
                   </p>
                 )}
 
