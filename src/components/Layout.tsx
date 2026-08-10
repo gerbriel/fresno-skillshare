@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Menu, X } from 'lucide-react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -20,6 +21,7 @@ export default function Layout() {
   const location = useLocation()
   const [unread, setUnread] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
 
   const profileId = profile?.id ?? null
 
@@ -36,6 +38,11 @@ export default function Layout() {
     void fetchUnread()
   }, [fetchUnread, location.pathname])
 
+  // Close the mobile menu whenever the route changes.
+  useEffect(() => {
+    setNavOpen(false)
+  }, [location.pathname])
+
   // The badge updates the moment a message lands, so no polling loop.
   useLive('layout-unread', profileId ? [{ table: 'message_threads' }] : [], fetchUnread)
 
@@ -44,6 +51,13 @@ export default function Layout() {
       isActive
         ? 'bg-emerald-50 font-semibold text-emerald-700'
         : 'font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+    }`
+
+  const mobileLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `block rounded-xl px-3.5 py-2.5 text-sm transition-colors ${
+      isActive
+        ? 'bg-emerald-50 font-semibold text-emerald-700'
+        : 'font-medium text-stone-700 hover:bg-stone-100'
     }`
 
   return (
@@ -75,7 +89,20 @@ export default function Layout() {
             </NavLink>
           </nav>
 
-          {profile && (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setNavOpen((open) => !open)}
+              className="relative rounded-full p-2 text-stone-600 transition-colors hover:bg-stone-100 md:hidden"
+              aria-label={navOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={navOpen}
+            >
+              {navOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
+              {!navOpen && unread > 0 && (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+              )}
+            </button>
+
+            {profile && (
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((open) => !open)}
@@ -122,19 +149,23 @@ export default function Layout() {
                 </div>
               )}
             </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* mobile nav */}
-        <nav className="flex gap-1 overflow-x-auto border-t border-stone-100 px-3 py-2 sm:px-5 md:hidden">
-          {[...navLinks, { to: '/messages', label: unread > 0 ? `Messages (${unread})` : 'Messages' }].map(
-            (link) => (
-              <NavLink key={link.to} to={link.to} className={linkClass}>
+        {/* mobile nav: hamburger dropdown */}
+        {navOpen && (
+          <nav className="space-y-1 border-t border-stone-100 px-3 py-3 md:hidden">
+            {navLinks.map((link) => (
+              <NavLink key={link.to} to={link.to} className={mobileLinkClass}>
                 {link.label}
               </NavLink>
-            )
-          )}
-        </nav>
+            ))}
+            <NavLink to="/messages" className={mobileLinkClass}>
+              Messages{unread > 0 ? ` (${unread})` : ''}
+            </NavLink>
+          </nav>
+        )}
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
