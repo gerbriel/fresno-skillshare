@@ -113,6 +113,10 @@ The landing page "Get in touch" form stores messages in the `contact_messages` t
 
 Input safety is layered: the client trims input, strips control characters, and caps lengths; the database enforces the same limits with CHECK constraints plus a per-IP rate limit (5 messages/hour); a honeypot field silently drops most bots; and everything renders as plain text, never HTML.
 
+## Group trades
+
+A trade posted to the open board can ask for more than one helper. In the trade composer, choosing "Anyone can claim it" reveals **How many people can help?**: just one (the classic single-claim trade), a group with a set range (e.g. 3-5), or open-ended ("as many as want to help"). Neighbors claim a spot, the poster brings them into the group ("Add to group"), and the trade stays on the board until the poster completes it. On completion, the poster and **every** accepted helper earn the badge and trade credit (`supabase/migrations/00025_group_trades.sql`: `min_helpers`/`max_helpers`, the `trade_participants` group table, and the `accept_trade_claimant` RPC). Reputation still counts distinct counterparties, so a group of five distinct helpers is five real relationships, not farmable by looping.
+
 ## Trust & safety
 
 Several protections keep the co-op honest and enforce the security boundary in the database (RLS), not the client:

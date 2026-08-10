@@ -8,7 +8,15 @@ import { formatDate, timeAgo } from '../lib/format'
 import { cleanText, LIMITS } from '../lib/validate'
 import { useLive } from '../lib/useLive'
 import Avatar from '../components/Avatar'
-import type { ProfileLite, TradeClaimWithProfile, TradeStatus, TradeWithProfiles } from '../lib/types'
+import type {
+  ProfileLite,
+  TradeClaimWithProfile,
+  TradeParticipantWithProfile,
+  TradeStatus,
+  TradeWithProfiles,
+} from '../lib/types'
+
+type HelpersMode = 'one' | 'range' | 'unlimited'
 
 const TRADE_SELECT =
   '*, proposer:profiles!trades_proposer_id_fkey(id, display_name, avatar_url), partner:profiles!trades_partner_id_fkey(id, display_name, avatar_url)'
@@ -51,6 +59,7 @@ export default function Trades() {
 
   const [trades, setTrades] = useState<TradeWithProfiles[]>([])
   const [claims, setClaims] = useState<TradeClaimWithProfile[]>([])
+  const [participants, setParticipants] = useState<TradeParticipantWithProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -62,6 +71,9 @@ export default function Trades() {
   const [title, setTitle] = useState('')
   const [offering, setOffering] = useState('')
   const [needing, setNeeding] = useState('')
+  const [helpersMode, setHelpersMode] = useState<HelpersMode>('one')
+  const [minHelpers, setMinHelpers] = useState(2)
+  const [maxHelpers, setMaxHelpers] = useState(5)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -86,11 +98,18 @@ export default function Trades() {
     setTrades((data ?? []) as unknown as TradeWithProfiles[])
 
     // RLS scopes this to my own claims plus claims on trades I posted.
-    const { data: claimRows } = await supabase
-      .from('trade_claims')
-      .select('*, claimant:profiles!trade_claims_claimant_id_fkey(id, display_name, avatar_url)')
-      .order('created_at', { ascending: true })
-    setClaims((claimRows ?? []) as unknown as TradeClaimWithProfile[])
+    const [claimResult, participantResult] = await Promise.all([
+      supabase
+        .from('trade_claims')
+        .select('*, claimant:profiles!trade_claims_claimant_id_fkey(id, display_name, avatar_url)')
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('trade_participants')
+        .select('*, member:profiles!trade_participants_member_id_fkey(id, display_name, avatar_url)')
+        .order('created_at', { ascending: true }),
+    ])
+    setClaims((claimResult.data ?? []) as unknown as TradeClaimWithProfile[])
+    setParticipants((participantResult.data ?? []) as unknown as TradeParticipantWithProfile[])
 
     setLoadError(null)
     setLoading(false)
@@ -104,7 +123,11 @@ export default function Trades() {
 
   // The open board is shared: a claim by someone else updates every
   // member's view immediately.
-  useLive('trades-live', me ? [{ table: 'trades' }, { table: 'trade_claims' }] : [], loadTrades)
+  useLive(
+    'trades-live',
+    me ? [{ table: 'trades' }, { table: 'trade_claims' }, { table: 'trade_participants' }] : [],
+    loadTrades
+  )
 
   useEffect(() => {
     if (!me) return
@@ -142,6 +165,9 @@ export default function Trades() {
     setTitle('')
     setOffering('')
     setNeeding('')
+    setHelpersMode('one')
+    setMinHelpers(2)
+    setMaxHelpers(5)
     setFormError(null)
   }
 
@@ -168,15 +194,29 @@ export default function Trades() {
       return
     }
 
+    const openBoard = partnerId === ANYONE
+    // Helper counts only apply to open-board trades. max null = unlimited.
+    let pMax: number | null = 1
+    let pMin = 1
+    if (openBoard && helpersMode === 'range') {
+      pMin = Math.max(1, Math.min(minHelpers, maxHelpers))
+      pMax = Math.max(pMin, maxHelpers)
+    } else if (openBoard && helpersMode === 'unlimited') {
+      pMin = 1
+      pMax = null
+    }
+
     setSubmitting(true)
     setFormError(null)
 
     // A null partner posts it to the open board instead of a direct proposal.
     const { error } = await supabase.rpc('create_trade', {
-      p_partner_id: partnerId === ANYONE ? null : partnerId,
+      p_partner_id: openBoard ? null : partnerId,
       p_title: cleanTitle,
       p_offering: cleanOffering,
       p_needing: cleanNeeding,
+      p_max_helpers: pMax,
+      p_min_helpers: pMin,
     })
     setSubmitting(false)
 
@@ -199,6 +239,16 @@ export default function Trades() {
     }
     return map
   }, [claims])
+
+  const participantsByTrade = useMemo(() => {
+    const map: Record<string, TradeParticipantWithProfile[]> = {}
+    for (const p of participants) {
+      const list = map[p.trade_id]
+      if (list) list.push(p)
+      else map[p.trade_id] = [p]
+    }
+    return map
+  }, [participants])
 
   const setTradeError = (tradeId: string, message: string | null) => {
     setTradeErrors((prev) => {
@@ -277,21 +327,27 @@ export default function Trades() {
     await loadTrades()
   }
 
-  const chooseClaimant = async (trade: TradeWithProfiles, claimant: ProfileLite) => {
+  const acceptClaimant = async (
+    trade: TradeWithProfiles,
+    claimant: ProfileLite,
+    multi: boolean
+  ) => {
     setBusyTradeId(trade.id)
     setTradeError(trade.id, null)
-    const { error } = await supabase.rpc('select_trade_claimant', {
+    const { error } = await supabase.rpc('accept_trade_claimant', {
       p_trade_id: trade.id,
       p_claimant_id: claimant.id,
     })
     setBusyTradeId(null)
     if (error) {
-      setTradeError(trade.id, describeError(error, 'Could not choose that claimant.'))
+      setTradeError(trade.id, describeError(error, 'Could not add that helper.'))
       return
     }
     setTradeNotes((prev) => ({
       ...prev,
-      [trade.id]: `${claimant.display_name} is now your trade partner. Mark the trade completed once the work is done.`,
+      [trade.id]: multi
+        ? `${claimant.display_name} joined the group. Complete the trade when the work is done and everyone earns the badge.`
+        : `${claimant.display_name} is now your trade partner. Mark the trade completed once the work is done.`,
     }))
     await loadTrades()
   }
@@ -307,7 +363,7 @@ export default function Trades() {
     }
     setTradeNotes((prev) => ({
       ...prev,
-      [trade.id]: `Trade completed. Both members earned the ${trade.title} badge.`,
+      [trade.id]: `Trade completed. Everyone who helped earned the ${trade.title} badge.`,
     }))
     await loadTrades()
   }
@@ -326,11 +382,27 @@ export default function Trades() {
     const isOpen = trade.status === 'open'
     const tradeClaims = claimsByTrade[trade.id] ?? []
     const myClaim = me ? tradeClaims.find((claim) => claim.claimant_id === me) : undefined
-    // Direct trades: either participant completes. Open-board trades:
-    // only the poster. Admins always can.
+    const isMulti = trade.max_helpers === null || trade.max_helpers !== 1
+    const group = participantsByTrade[trade.id] ?? []
+    const iAmHelping = group.some((p) => p.member_id === me)
+    const groupFull = trade.max_helpers !== null && group.length >= trade.max_helpers
+    // How many helpers this trade is asking for.
+    const helpersLabel =
+      trade.max_helpers === null
+        ? 'Open to as many as want to help'
+        : trade.max_helpers === 1
+          ? null
+          : trade.min_helpers === trade.max_helpers
+            ? `Needs ${trade.max_helpers} helpers`
+            : `Needs ${trade.min_helpers}-${trade.max_helpers} helpers`
+    // Direct trades: either participant completes. Open-board and group
+    // trades: only the poster. Admins always can.
     const canConfirm =
-      trade.status === 'accepted' &&
-      (isAdmin || (trade.was_open ? iAmProposer : iAmProposer || trade.partner_id === me))
+      isAdmin ||
+      (isMulti
+        ? iAmProposer && group.length >= 1 && (trade.status === 'open' || trade.status === 'accepted')
+        : trade.status === 'accepted' &&
+          (trade.was_open ? iAmProposer : iAmProposer || trade.partner_id === me))
 
     return (
       <article
@@ -383,10 +455,39 @@ export default function Trades() {
           </div>
         </div>
 
-        {isOpen && iAmProposer && tradeClaims.length > 0 && (
+        {helpersLabel && (
+          <p className="text-xs font-medium text-violet-700">
+            {helpersLabel}
+            {isMulti && ` · ${group.length} helping`}
+          </p>
+        )}
+
+        {group.length > 0 && (
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+            <span className="text-xs font-semibold tracking-wide text-emerald-800 uppercase">
+              {isMulti ? `Helping (${group.length})` : 'Trade partner'}
+            </span>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {group.map((p) => (
+                <li key={p.member_id}>
+                  <Link
+                    to={`/u/${p.member.id}`}
+                    className="flex items-center gap-1.5 rounded-full bg-white px-2 py-1 text-xs text-stone-700 ring-1 ring-emerald-200 hover:text-emerald-700"
+                  >
+                    <Avatar name={p.member.display_name} url={p.member.avatar_url} size="sm" />
+                    <span className="truncate">{p.member.display_name}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {iAmProposer && (isOpen || (isMulti && trade.status === 'accepted')) && tradeClaims.length > 0 && (
           <div className="rounded-xl border border-violet-100 bg-violet-50 p-3">
             <span className="text-xs font-semibold tracking-wide text-violet-800 uppercase">
               {tradeClaims.length === 1 ? '1 neighbor wants this' : `${tradeClaims.length} neighbors want this`}
+              {isMulti && groupFull && ' · group full'}
             </span>
             <ul className="mt-2 space-y-2">
               {tradeClaims.map((claim) => (
@@ -404,11 +505,11 @@ export default function Trades() {
                   </Link>
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => void chooseClaimant(trade, claim.claimant)}
+                    disabled={busy || (isMulti && groupFull)}
+                    onClick={() => void acceptClaimant(trade, claim.claimant, isMulti)}
                     className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Choose as partner
+                    {isMulti ? 'Add to group' : 'Choose as partner'}
                   </button>
                 </li>
               ))}
@@ -452,18 +553,24 @@ export default function Trades() {
               </>
             )}
 
-            {!iAmProposer && isOpen && !myClaim && (
+            {!iAmProposer && iAmHelping && (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                You&apos;re helping
+              </span>
+            )}
+
+            {!iAmProposer && isOpen && !iAmHelping && !myClaim && !groupFull && (
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => void claimTrade(trade)}
                 className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {busy ? 'Claiming...' : 'Claim this trade'}
+                {busy ? 'Claiming...' : isMulti ? 'Claim a spot' : 'Claim this trade'}
               </button>
             )}
 
-            {!iAmProposer && isOpen && myClaim && (
+            {!iAmProposer && isOpen && !iAmHelping && myClaim && (
               <>
                 <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-800">
                   You claimed this
@@ -559,6 +666,54 @@ export default function Trades() {
             </p>
             {membersError && <p className="mt-1 text-xs text-red-600">{membersError}</p>}
           </div>
+
+          {partnerId === ANYONE && (
+            <div>
+              <label htmlFor="trade-helpers" className="mb-1 block text-sm font-medium text-stone-700">
+                How many people can help?
+              </label>
+              <select
+                id="trade-helpers"
+                value={helpersMode}
+                onChange={(event) => setHelpersMode(event.target.value as HelpersMode)}
+                className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              >
+                <option value="one">Just one person</option>
+                <option value="range">A group (you set how many)</option>
+                <option value="unlimited">As many as want to help</option>
+              </select>
+              {helpersMode === 'range' && (
+                <div className="mt-2 flex items-center gap-2 text-sm text-stone-600">
+                  <span>Between</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={minHelpers}
+                    onChange={(event) => setMinHelpers(Math.max(1, Number(event.target.value) || 1))}
+                    className="w-16 rounded-lg border border-stone-200 px-2 py-1 text-sm outline-none focus:border-emerald-500"
+                    aria-label="Minimum helpers"
+                  />
+                  <span>and</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={maxHelpers}
+                    onChange={(event) => setMaxHelpers(Math.max(1, Number(event.target.value) || 1))}
+                    className="w-16 rounded-lg border border-stone-200 px-2 py-1 text-sm outline-none focus:border-emerald-500"
+                    aria-label="Maximum helpers"
+                  />
+                  <span>people</span>
+                </div>
+              )}
+              <p className="mt-1 text-xs text-stone-500">
+                {helpersMode === 'one'
+                  ? 'The first neighbor you pick becomes your partner.'
+                  : 'Neighbors claim a spot, you bring them into the group, and everyone who helps earns the badge when you complete it.'}
+              </p>
+            </div>
+          )}
 
           <div>
             <label htmlFor="trade-title" className="mb-1 block text-sm font-medium text-stone-700">

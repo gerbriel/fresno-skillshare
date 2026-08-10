@@ -170,6 +170,9 @@ export interface Trade {
   status: TradeStatus
   /** True if this came off the open board, which flips who confirms it. */
   was_open: boolean
+  /** Group trades: suggested minimum and maximum helpers (max null = unlimited). */
+  min_helpers: number
+  max_helpers: number | null
   created_at: string
   completed_at: string | null
 }
@@ -177,6 +180,17 @@ export interface Trade {
 export interface TradeWithProfiles extends Trade {
   proposer: ProfileLite
   partner: ProfileLite | null
+}
+
+/** A member accepted into a trade's group of helpers. */
+export interface TradeParticipant {
+  trade_id: string
+  member_id: string
+  created_at: string
+}
+
+export interface TradeParticipantWithProfile extends TradeParticipant {
+  member: ProfileLite
 }
 
 
